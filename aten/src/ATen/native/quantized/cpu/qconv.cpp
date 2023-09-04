@@ -1,6 +1,7 @@
 #define TORCH_ASSERT_ONLY_METHOD_OPERATORS
 #include <algorithm>
-#include <cmath>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include <ATen/core/Tensor.h>
@@ -35,7 +36,7 @@
 #endif
 
 #include <c10/util/irange.h>
-#include <c10/util/string_utils.h>
+#include <fmt/format.h>
 
 namespace {
 // To have a sanity check for maximum matrix size.
@@ -49,7 +50,7 @@ bool ConvDimChecks(
     int64_t padding_dims,
     int64_t output_padding_dims,
     int64_t dilation_dims,
-    std::string func_name,
+    std::string_view func_name,
     bool transpose = false) {
   TORCH_CHECK(
       act_dims == kSpatialDim + 2,
@@ -1452,8 +1453,7 @@ static at::Tensor _quantized_convolution_onednn(
     }
   }
 
-  std::string func_name = "quantized::packed_weights_conv";
-  func_name += std::to_string(kSpatialDim) + "d";
+  std::string func_name = fmt::format("quantized::packed_weights_conv{}d", kSpatialDim);
   if (has_binary_post_op) {
     func_name += binary_attr.value().data();
   }
@@ -1565,8 +1565,7 @@ static at::Tensor _quantized_convolution_onednn(
     TORCH_CHECK(bias_val_float.dim() == 1, "bias should be a vector (1D Tensor)");
     TORCH_CHECK(
         bias_val_float.size(0) == output_channels,
-        "bias should have K elements: " + std::to_string(output_channels));
-    auto bias_desc = ideep::tensor::desc(bias_val_float.sizes().vec(), dnnl::memory::data_type::f32);
+        fmt::format("bias should have K elements: {}", output_channels));
     onednn_bias.init(bias_desc, bias_val_float.data_ptr());
   }
 
@@ -1803,16 +1802,14 @@ class QConvInt8ForBC final {
       double output_scale,
       int64_t output_zero_point) {
     if (kReluFused) {
-      TORCH_WARN_ONCE(
-          "Arguments [stride, padding, dilation, groups] in ops.quantized.conv"
-          + c10::to_string(kSpatialDim) + "d_relu, " +
-          "have been removed, please update your model to remove these arguments.");
+      TORCH_WARN_ONCE(fmt::format(
+          "Arguments [stride, padding, dilation, groups] in ops.quantized.conv{}d_relu, have been removed, please update your model to remove these arguments.",
+          kSpatialDim));
       return packed_weight->apply_relu(act, output_scale, output_zero_point);
     } else {
-      TORCH_WARN_ONCE(
-          "Arguments [stride, padding, dilation, groups] in ops.quantized.conv"
-          + c10::to_string(kSpatialDim) + "d, " +
-          "have been removed, please update your model to remove these arguments.");
+      TORCH_WARN_ONCE(fmt::format(
+          "Arguments [stride, padding, dilation, groups] in ops.quantized.conv{}d, have been removed, please update your model to remove these arguments.",
+          kSpatialDim));
       return packed_weight->apply(act, output_scale, output_zero_point);
     }
   }
