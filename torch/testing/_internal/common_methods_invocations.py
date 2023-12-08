@@ -8444,6 +8444,7 @@ def sample_inputs_scaled_dot_product_attention(op_info, device, dtype, requires_
         is_causal=is_causal,
         dropout_p=dropout_p
     )
+    samples.append(diff_v_head_dim)
 
     # Add an attn_mask
     samples.append(
@@ -8510,7 +8511,8 @@ def sample_inputs_efficient_attention_forward(op_info, device, dtype, requires_g
         causal_diagonal=None,
         seqlen_k=None
     )
-
+    samples.append(diff_v_head_dim)
+    
     # Add an attn_mask
     samples.append(
         SampleInput(
