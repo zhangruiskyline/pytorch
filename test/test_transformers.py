@@ -1361,7 +1361,7 @@ class TestSDPAFailureModes(NNTestCase):
     @onlyCUDA
     def test_dispatch_fails_no_backend(self, device):
         dtype = torch.float16
-        with sdp_kernel(enable_flash=False, enable_math=False, enable_mem_efficient=False):
+        with sdp_kernel(enable_flash=False, enable_math=False, enable_mem_efficient=False, enable_cudnn=False):
             size = (2, 3, 4)
             q = torch.randn(size, device=device, dtype=dtype)
             k = torch.randn(size, device=device, dtype=dtype)
