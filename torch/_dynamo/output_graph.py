@@ -94,7 +94,6 @@ from .variables.tensor import (
     TensorVariable,
     UnspecializedPythonVariable,
 )
-
 from .variables.torch_function import TensorWithTFOverrideVariable
 
 log = logging.getLogger(__name__)
@@ -907,6 +906,7 @@ class OutputGraph(Checkpointable[OutputGraphState]):
             and all(isinstance(x, TensorVariable) for x in stack_values)
             and len(set(stack_values)) == len(stack_values)
             and self.side_effects.is_empty()
+            and not (torch._dynamo.config.reorder_prints and len(tx.debug_locals) != 0)
         ):
             append_prefix_insts()
             # optimization to generate better code in a common case
@@ -929,6 +929,14 @@ class OutputGraph(Checkpointable[OutputGraphState]):
                 graph_output_var,
                 tempvars={val: None for val, count in pass1.uses.items() if count > 1},
             )
+
+            if torch._dynamo.config.reorder_prints and len(tx.debug_locals) != 0:
+                for debug_var, args in tx.debug_locals:
+                    pass2(debug_var)
+                    for arg in args:
+                        pass2(arg)
+                    pass2.extend_output(create_call_function(len(args), True))
+
             self.side_effects.codegen_hooks(pass2)
             self.side_effects.codegen_save_tempvars(pass2)
             pass2.restore_stack(stack_values, value_from_source=not tx.export)

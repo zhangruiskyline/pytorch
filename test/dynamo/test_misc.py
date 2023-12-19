@@ -6,6 +6,7 @@ import dataclasses
 import dis
 import enum
 import functools
+import io
 import itertools
 import logging
 import math
@@ -7485,6 +7486,71 @@ def ___make_guard_fn():
         orig_out = m(x)
         opt_m = torch.compile(backend="eager")(m)
         opt_out = opt_m(x)
+        self.assertTrue(same(orig_out, opt_out))
+
+    @torch._dynamo.config.patch(reorder_prints=True)
+    def test_reorder_print(self):
+        def f(x):
+            print("start")
+            x1 = x + x
+            print(x1)
+            x2 = x1 * x1
+            print(1, 2, 3)
+            x3 = x2 + x2
+            return (x1, x3)
+
+        x = torch.ones(3, 3)
+        opt_f = torch.compile(backend="eager")(f)
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            opt_out = opt_f(x)
+            printed_output = mock_stdout.getvalue().strip()
+            orig_out = f(x)
+
+        self.assertEqual(printed_output, f"start\n{torch.ones(3, 3) * 2}\n1 2 3")
+        self.assertTrue(same(orig_out, opt_out))
+
+    @torch._dynamo.config.patch(reorder_prints=True)
+    def test_reorder_warnings(self):
+        import warnings
+
+        def f(x):
+            x1 = x + x
+            warnings.warn("start")
+            x2 = x1 * x1
+            warnings.warn(f"{x2}")
+            x3 = x2 + x2
+            return x3
+
+        x = torch.ones(3, 3)
+        torch.export.export(f, (x,))
+        opt_f = torch.compile(backend="eager")(f)
+        with warnings.catch_warnings(record=True) as w:
+            opt_out = opt_f(x)
+            warning_messages = [str(i.message) for i in w]
+            orig_out = f(x)
+
+        self.assertTrue(same(orig_out, opt_out))
+        self.assertIn("start", warning_messages)
+
+    @torch._dynamo.config.patch(reorder_prints=True)
+    def test_reorder_print_graph_break(self):
+        def f(x):
+            x1 = x + x
+            print(f"res: {x1}")
+            x2 = x1 * x1
+            torch._dynamo.graph_break()
+            x3 = x2 + x2
+            print(1, 2, 3)
+            return (x1, x3)
+
+        x = torch.ones(3, 3)
+        opt_f = torch.compile(backend="eager")(f)
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            opt_out = opt_f(x)
+            printed_output = mock_stdout.getvalue().strip()
+            orig_out = f(x)
+
+        self.assertEqual(printed_output, f"res: {torch.ones(3, 3) * 2}\n1 2 3")
         self.assertTrue(same(orig_out, opt_out))
 
     def test_torch_variable_hasattr(self):

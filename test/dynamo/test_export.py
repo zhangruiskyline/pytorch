@@ -9,6 +9,7 @@ import inspect
 import io
 import operator
 import unittest
+import warnings
 from enum import Enum
 from typing import Dict, List, Sequence
 from unittest.mock import patch
@@ -4215,6 +4216,47 @@ def forward(self, x):
     l_x__1 = torch.cos(l_x_);  l_x_ = None
     sin = torch.sin(l_x__1);  l_x__1 = None
     return pytree.tree_unflatten([sin], self._out_spec)""",
+        )
+
+    def test_print(self):
+        def f(x):
+            print("start")
+            x1 = x + x
+            print(x1)
+            x2 = x1 * x1
+            print(1, 2, 3)
+            x3 = x2 + x2
+            return (x1, x3)
+
+        gm, _ = torch._dynamo.export(f)(torch.randn(3, 3))
+        self.assertExpectedInline(
+            gm.code.strip(),
+            """\
+def forward(self, x):
+    arg0, = fx_pytree.tree_flatten_spec(([x], {}), self._in_spec)
+    l_x_ = arg0
+    x1 = l_x_ + l_x_;  l_x_ = None
+    x2 = x1 * x1
+    x3 = x2 + x2;  x2 = None
+    return pytree.tree_unflatten([x1, x3], self._out_spec)""",
+        )
+
+    def test_warning(self):
+        def f(x):
+            warnings.warn("moo")
+            res = x + x
+            warnings.warn(f"{res}")
+            return res
+
+        gm, _ = torch._dynamo.export(f)(torch.randn(3, 3))
+        self.assertExpectedInline(
+            gm.code.strip(),
+            """\
+def forward(self, x):
+    arg0, = fx_pytree.tree_flatten_spec(([x], {}), self._in_spec)
+    l_x_ = arg0
+    res = l_x_ + l_x_;  l_x_ = None
+    return pytree.tree_unflatten([res], self._out_spec)""",
         )
 
     def test_preserve_fx_node_metadata_graph_break(self):

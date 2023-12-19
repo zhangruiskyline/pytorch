@@ -265,7 +265,7 @@ class AutogradFunctionTests(torch._dynamo.test_case.TestCase):
         opt_model = torch._dynamo.optimize("eager", nopython=True)(model)
         x = torch.randn(2, 2, dtype=torch.double, requires_grad=True)
         with self.assertRaisesRegex(
-            torch._dynamo.exc.Unsupported, ".*BuiltinVariable\\(print\\).*"
+            torch._dynamo.exc.Unsupported, ".*DebuggingVariable\\(print\\).*"
         ):
             opt_model(x)
 

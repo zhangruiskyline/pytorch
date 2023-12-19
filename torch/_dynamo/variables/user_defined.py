@@ -854,6 +854,27 @@ class UserDefinedObjectVariable(UserDefinedVariable):
         )(collections.OrderedDict.__getitem__(self.value, key.as_python_constant()))
 
 
+class DebuggingVariable(UserDefinedObjectVariable):
+    @staticmethod
+    def is_matching_object(obj):
+        import warnings
+
+        return obj in (warnings.warn, print)
+
+    def call_function(self, tx, args, kwargs):
+        if tx.export:
+            # For export cases, we can just make debugging functions no-ops
+            return
+        elif torch._dynamo.config.reorder_prints:
+            tx.debug_locals.append((self, list(args)))
+            return
+        else:
+            return super().call_function(tx, args, kwargs)
+
+    def reconstruct(self, codegen):
+        return self.source.reconstruct(codegen)
+
+
 class KeyedJaggedTensorVariable(UserDefinedObjectVariable):
     @staticmethod
     def is_matching_object(obj):
