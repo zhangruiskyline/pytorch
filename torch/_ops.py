@@ -280,6 +280,7 @@ class HigherOrderOperator(OperatorBase):
         self.non_fallthrough_keys = self.non_fallthrough_keys.remove(dispatch_key)
 
     def dispatch(self, dispatch_key, *args, **kwargs):
+        print(self, dispatch_key)
         from torch.utils._python_dispatch import _get_current_dispatch_mode
 
         if dispatch_key in self._dispatch_cache:
@@ -311,6 +312,8 @@ class HigherOrderOperator(OperatorBase):
 
             # The check for Python in the exclude set is so we properly respect `with no_dispatch()`
             # calls inside of a mode.
+            if _len_torch_dispatch_stack_pre_dispatch() == 0:
+                breakpoint()
             if (
                 _len_torch_dispatch_stack_pre_dispatch() > 0
             ) and not torch._C._dispatch_tls_is_dispatch_key_excluded(

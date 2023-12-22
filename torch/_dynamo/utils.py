@@ -93,6 +93,7 @@ from torch._dispatch.python import enable_python_dispatcher
 from torch._utils_internal import log_compilation_event
 
 from torch.nn.modules.lazy import LazyModuleMixin
+from torch.utils._python_dispatch import _temp_pop_torch_function_mode
 from torch.utils._pytree import tree_map_only
 
 
@@ -243,7 +244,8 @@ def dynamo_timed(original_function=None, phase_name=None):
                 compilation_time_metrics[key] = []
             with torch.profiler.record_function(f"{key} (dynamo_timed)"):
                 t0 = time.time()
-                r = func(*args, **kwargs)
+                with _temp_pop_torch_function_mode():
+                    r = func(*args, **kwargs)
                 time_spent = time.time() - t0
             compilation_time_metrics[key].append(time_spent)
             if phase_name:

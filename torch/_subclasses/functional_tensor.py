@@ -147,6 +147,7 @@ class FunctionalTensor(torch.Tensor):
         # - If we use the default tensor.__new__(), we have another problem: it returns inner_tensor.alias(),
         #   which causes every subclass created above autograd to have autograd view metadata
         #   (in addition to also being a FunctionalTensorWrapper).
+        breakpoint()
         raise RuntimeError(
             "Attempting to use FunctionalTensor on its own. Instead, please use it with a corresponding FunctionalTensorMode()"
         )
@@ -383,13 +384,21 @@ def maybe_disable_functional_mode():
 # TODO: clean up the redundancy here,
 # unify on a single context manager for all mode keys.
 @contextlib.contextmanager
-def unset_functional_temporarily():
-    old = torch._C._unset_dispatch_mode(torch._C._TorchDispatchModeKey.FUNCTIONAL)
+def unset_functional_temporarily(is_pre_dispatch=False):
+    from torch._ops import _set_mode_pre_dispatch, unset_mode_pre_dispatch
+
+    old = (
+        torch._C._unset_dispatch_mode(torch._C._TorchDispatchModeKey.FUNCTIONAL)
+        if not is_pre_dispatch
+        else unset_mode_pre_dispatch(torch._C._TorchDispatchModeKey.FUNCTIONAL)
+    )
     try:
         yield old
     finally:
         if old is not None:
-            torch._C._set_dispatch_mode(old)
+            torch._C._set_dispatch_mode(
+                old
+            ) if not is_pre_dispatch else _set_mode_pre_dispatch(old)
 
 
 # This is similar to torch.func.functionalize, but:
@@ -426,8 +435,24 @@ def dispatch_functionalize(func):
         disable_above = torch._C._ExcludeDispatchKeyGuard(
             torch._C.DispatchKeySet(torch._C.DispatchKey.Functionalize)
         )
-        with disable_above, FunctionalTensorMode():
-            func_outputs = func(*func_args, **func_kwargs)
+        current_functional_mode = _detect_functional_mode()
+        functional_mode = (
+            current_functional_mode
+            if current_functional_mode
+            else FunctionalTensorMode(True)
+        )
+
+        with disable_above, functional_mode:
+            func_args = pytree.tree_map_only(torch.Tensor, to_fun, args)
+            func_kwargs = pytree.tree_map_only(torch.Tensor, to_fun, kwargs)
+            include_to_set = (
+                torch._C._dispatch_tls_local_include_set()
+                | torch._C.DispatchKeySet(torch._C.DispatchKey.PreDispatch)
+            )
+            with torch._C._ForceDispatchKeyGuard(
+                include_to_set, torch._C._dispatch_tls_local_exclude_set()
+            ):
+                func_outputs = func(*func_args, **func_kwargs)
             outputs = pytree.tree_map_only(FunctionalTensor, from_fun, func_outputs)
 
             return outputs

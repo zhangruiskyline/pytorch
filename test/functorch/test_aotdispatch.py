@@ -2735,6 +2735,260 @@ class TestMod(torch.nn.Module):
 
 class TestAOTExport(AOTTestCase):
 
+    def test_aot_export_predispatch_func_simple(self):
+        def fn(p, x):
+            y = x + 2
+            with torch.no_grad():
+                y.add_(2)
+            return (x * 2 + y,)
+
+        mod = TestMod(fn)
+        inp = torch.randn(2, 2)
+
+        gm, _ = aot_export_module(mod, [inp], trace_joint=False, pre_dispatch=True)
+        self.assertExpectedInline(str(gm.code).strip(), """\
+def forward(self, arg0_1, arg1_1):
+    add = torch.ops.aten.add.Tensor(arg1_1, 2)
+    _set_grad_enabled = torch._C._set_grad_enabled(False)
+    add_1 = torch.ops.aten.add.Tensor(add, 2);  add = None
+    _set_grad_enabled_1 = torch._C._set_grad_enabled(False)
+    mul = torch.ops.aten.mul.Tensor(arg1_1, 2);  arg1_1 = None
+    add_2 = torch.ops.aten.add.Tensor(mul, add_1);  mul = add_1 = None
+    return (add_2,)""")
+
+    def test_aot_export_predispatch_func_composite_implicit(self):
+        def fn(p, x):
+            with torch.enable_grad():
+                y = x @ x
+            y.add_(2)
+            return (x.sum() + y.sum(),)
+
+        mod = TestMod(fn)
+        inp = torch.randn(2, 2)
+
+        gm, _ = aot_export_module(mod, [inp], trace_joint=False, pre_dispatch=True)
+        self.assertExpectedInline(str(gm.code).strip(), """\
+def forward(self, arg0_1, arg1_1):
+    _set_grad_enabled = torch._C._set_grad_enabled(True)
+    mm = torch.ops.aten.mm.default(arg1_1, arg1_1)
+    _set_grad_enabled_1 = torch._C._set_grad_enabled(False)
+    add = torch.ops.aten.add.Tensor(mm, 2);  mm = None
+    sum_1 = torch.ops.aten.sum.default(arg1_1);  arg1_1 = None
+    sum_2 = torch.ops.aten.sum.default(add);  add = None
+    add_1 = torch.ops.aten.add.Tensor(sum_1, sum_2);  sum_1 = sum_2 = None
+    return (add_1,)""")
+
+    def test_aot_export_predispatch_outdtype(self):
+        class M(torch.nn.Module):
+            def __init__(self, weight):
+                super().__init__()
+                self.weight = weight
+
+            def forward(self, x):
+                y = x + 2
+                y.add_(5)
+                return (out_dtype(
+                    torch.ops.aten.mm.default, torch.int32, y, self.weight
+                ),)
+
+        weight = torch.randint(-128, 127, (5, 5), dtype=torch.int8)
+        mod = M(weight)
+        inp = torch.randint(-128, 127, (5, 5), dtype=torch.int8)
+
+        gm, _ = aot_export_module(mod, [inp], trace_joint=False, pre_dispatch=True)
+        self.assertExpectedInline(str(gm.code).strip(), """\
+def forward(self, arg0_1, arg1_1):
+    _set_grad_enabled = torch._C._set_grad_enabled(True)
+    mm = torch.ops.aten.mm.default(arg1_1, arg1_1)
+    _set_grad_enabled_1 = torch._C._set_grad_enabled(False)
+    add = torch.ops.aten.add.Tensor(mm, 2);  mm = None
+    sum_1 = torch.ops.aten.sum.default(arg1_1);  arg1_1 = None
+    sum_2 = torch.ops.aten.sum.default(add);  add = None
+    add_1 = torch.ops.aten.add.Tensor(sum_1, sum_2);  sum_1 = sum_2 = None
+    return (add_1,)""")
+
+    def test_aot_export_predispatch_func_view(self):
+        def fn(p, x):
+            y = x @ x
+            y.add_(2)
+            return (x.sum() + y.view(1, 4).sum(),)
+
+        mod = TestMod(fn)
+        inp = torch.randn(2, 2)
+
+        gm, _ = aot_export_module(mod, [inp], trace_joint=False, pre_dispatch=True)
+        self.assertExpectedInline(str(gm.code).strip(), """\
+def forward(self, arg0_1, arg1_1):
+    mm = torch.ops.aten.mm.default(arg1_1, arg1_1)
+    add = torch.ops.aten.add.Tensor(mm, 2);  mm = None
+    sum_1 = torch.ops.aten.sum.default(arg1_1);  arg1_1 = None
+    view_1 = torch.ops.aten.view.default(add, [1, 4]);  add = None
+    sum_2 = torch.ops.aten.sum.default(view_1);  view_1 = None
+    add_1 = torch.ops.aten.add.Tensor(sum_1, sum_2);  sum_1 = sum_2 = None
+    return (add_1,)""")
+
+    def test_aot_export_predispatch_buffer_mutation_metadata(self):
+        class Foo(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.register_buffer('foo', torch.zeros(2, 2))
+
+            def forward(self, x):
+                self.foo.add_(4)
+                return (x.sum() + self.foo.sum(),)
+
+        inp = torch.randn(2, 2)
+
+        gm, graph_sig = aot_export_module(Foo(), [inp], trace_joint=False, pre_dispatch=True)
+        self.assertExpectedInline(str(gm.code).strip(), """\
+def forward(self, arg0_1, arg1_1):
+    add = torch.ops.aten.add.Tensor(arg0_1, 4);  arg0_1 = None
+    sum_1 = torch.ops.aten.sum.default(arg1_1);  arg1_1 = None
+    sum_2 = torch.ops.aten.sum.default(add)
+    add_1 = torch.ops.aten.add.Tensor(sum_1, sum_2);  sum_1 = sum_2 = None
+    return (add, add_1)""")
+        eager_mod = Foo()
+        output_1, output_2 = gm(torch.zeros(2, 2), inp)
+        eager_output = eager_mod(inp)
+        self.assertTrue(torch.allclose(output_2, eager_output[0]))
+
+        _, output_2 = gm(output_1, inp)
+        eager_output = eager_mod(inp)
+        self.assertTrue(torch.allclose(output_2, eager_output[0]))
+        self.assertTrue("foo" in graph_sig.buffers)
+        self.assertTrue(graph_sig.inputs_to_buffers["arg0_1"] == "foo")
+
+    def test_aot_export_predispatch_with_autograd_op(self):
+        def foo(p, x):
+            with torch.enable_grad():
+                y = x + 5
+                y.add_(5)
+                y.add_(7)
+                return (x.cos() + y.sin(),)
+
+        inp = torch.randn(2, 2)
+        mod = TestMod(foo)
+
+        gm, _ = aot_export_module(mod, [inp], trace_joint=False, pre_dispatch=True)
+        self.assertExpectedInline(str(gm.code).strip(), """\
+def forward(self, arg0_1, arg1_1):
+    _set_grad_enabled = torch._C._set_grad_enabled(True)
+    add = torch.ops.aten.add.Tensor(arg1_1, 5)
+    add_1 = torch.ops.aten.add.Tensor(add, 5);  add = None
+    add_2 = torch.ops.aten.add.Tensor(add_1, 7);  add_1 = None
+    cos = torch.ops.aten.cos.default(arg1_1);  arg1_1 = None
+    sin = torch.ops.aten.sin.default(add_2);  add_2 = None
+    add_3 = torch.ops.aten.add.Tensor(cos, sin);  cos = sin = None
+    _set_grad_enabled_1 = torch._C._set_grad_enabled(False)
+    return (add_3,)""")
+
+    # TODO(tmanlaibaatar) properly support functionalizing HOO in
+    # predispatch tracing mode
+    def test_aot_export_predispatch_with_cond(self):
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+
+            def forward(self, x):
+                def true_fn(x):
+                    y = x
+                    y.add_(5)
+                    return y.cos()
+
+                def false_fn(x):
+                    z = x
+                    z.add_(6)
+                    return z.sin()
+
+                a = torch.cond(x.shape[0] > 4, true_fn, false_fn, [x])
+                return (a + 3, a + 4)
+
+        inp = torch.randn(2, 2)
+        gm, _ = aot_export_module(M(), [inp], trace_joint=False, pre_dispatch=True)
+        self.assertExpectedInline(str(gm.code).strip(), """\
+def forward(self, arg0_1):
+    true_graph_0 = self.true_graph_0
+    false_graph_0 = self.false_graph_0
+    conditional = torch.ops.higher_order.cond(False, true_graph_0, false_graph_0, [arg0_1]);  true_graph_0 = false_graph_0 = arg0_1 = None
+    getitem = conditional[0];  conditional = None
+    add = torch.ops.aten.add.Tensor(getitem, 3)
+    add_1 = torch.ops.aten.add.Tensor(getitem, 4);  getitem = None
+    return (add, add_1)""")
+        self.assertExpectedInline(str(gm.true_graph_0.code).strip(), """\
+def forward(self, arg0_1):
+    add = torch.ops.aten.add.Tensor(arg0_1, 5);  arg0_1 = None
+    cos = torch.ops.aten.cos.default(add);  add = None
+    return (cos,)""")
+        self.assertExpectedInline(str(gm.false_graph_0.code).strip(), """\
+def forward(self, arg0_1):
+    add = torch.ops.aten.add.Tensor(arg0_1, 6);  arg0_1 = None
+    sin = torch.ops.aten.sin.default(add);  add = None
+    return (sin,)""")
+
+
+    def test_aot_export_predispatch_cond_nested(self):
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+
+            def forward(self, x):
+                def true_fn(x):
+                    def true_true_fn(x):
+                        y = x
+                        y.add_(7)
+                        return y.cos()
+                    def true_false_fn(x):
+                        y = x
+                        y.add_(8)
+                        return y.sin()
+                    y = x
+                    y.add_(5)
+
+                    return torch.cond(y.shape[0] > 4, true_true_fn, true_false_fn, [y])
+
+                def false_fn(x):
+                    z = x
+                    z.add_(6)
+                    return z.sin()
+
+                a = torch.cond(x.shape[0] > 4, true_fn, false_fn, [x])
+                return (a + 3, a + 4)
+
+        inp = torch.randn(2, 2)
+        gm, _ = aot_export_module(M(), [inp], trace_joint=False, pre_dispatch=True)
+        self.assertExpectedInline(str(gm.code).strip(), """\
+def forward(self, arg0_1):
+    true_graph_0 = self.true_graph_0
+    false_graph_0 = self.false_graph_0
+    conditional = torch.ops.higher_order.cond(False, true_graph_0, false_graph_0, [arg0_1]);  true_graph_0 = false_graph_0 = arg0_1 = None
+    getitem = conditional[0];  conditional = None
+    add = torch.ops.aten.add.Tensor(getitem, 3)
+    add_1 = torch.ops.aten.add.Tensor(getitem, 4);  getitem = None
+    return (add, add_1)""")
+
+        self.assertExpectedInline(str(gm.true_graph_0.code).strip(), """\
+def forward(self, arg0_1):
+    add = torch.ops.aten.add.Tensor(arg0_1, 5);  arg0_1 = None
+    true_graph_0 = self.true_graph_0
+    false_graph_0 = self.false_graph_0
+    conditional = torch.ops.higher_order.cond(False, true_graph_0, false_graph_0, [add]);  true_graph_0 = false_graph_0 = add = None
+    getitem = conditional[0];  conditional = None
+    return (getitem,)""")
+
+        self.assertExpectedInline(str(gm.true_graph_0.true_graph_0.code).strip(), """\
+def forward(self, arg0_1):
+    add = torch.ops.aten.add.Tensor(arg0_1, 7);  arg0_1 = None
+    cos = torch.ops.aten.cos.default(add);  add = None
+    return (cos,)""")
+
+        self.assertExpectedInline(str(gm.true_graph_0.false_graph_0.code).strip(), """\
+def forward(self, arg0_1):
+    add = torch.ops.aten.add.Tensor(arg0_1, 8);  arg0_1 = None
+    sin = torch.ops.aten.sin.default(add);  add = None
+    return (sin,)""")
+
+
+
     def test_aot_export_module_joint(self):
         class ConvBatchnormRelu(torch.nn.Module):
             def __init__(self):
