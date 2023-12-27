@@ -2214,7 +2214,16 @@ class ReinterpretView(BaseView):
         # - offset is added to the existing offset (rather than replacing it)
         # - view tracking is disabled similar to unsafe_view
         return V.graph.wrapper_code.codegen_reinterpret_view(
-            self.data,
+            # Fix issue: inductor/test_layout_optim.py::TestLayoutOptim::test_mutate_base - NameError: name 'buf0' is not defined
+            # After we remove mutation buffer copies
+            # We will return the MutationLayout.targer instead of the buffer itself
+            self.data.layout.get_buffer()
+            if (
+                isinstance(self.data, StorageBox)
+                and isinstance(self.data.layout, MutationLayout)
+                and isinstance(self.data.layout.get_buffer(), InputBuffer)
+            )
+            else self.data,
             self.layout.size,
             self.layout.stride,
             self.layout.offset,
@@ -2695,7 +2704,35 @@ class MutationLayout(Layout):
         # dst, we can alias src to dst.
         src.realize_hint()
 
-        if not unsafe_alias:
+        def _ensure_write_index_not_overlap_reads_index():
+            # src read and write same buffer,
+            # but the read and write index are exact same.
+            # so, we can skip the copy to read and write same buffer
+            if isinstance(src.data, ComputedBuffer):
+                read_writes = src.get_read_writes()
+                if len(list(read_writes.writes)) != 1:
+                    return False
+                write = next(iter(read_writes.writes))
+                return all(
+                    (read.name != dst.get_name() or read.index == write.index)
+                    for read in read_writes.reads
+                )
+            return False
+
+        if (
+            not isinstance(src, StorageBox)
+            or (
+                src.is_user_of(dst.get_name())
+                and not _ensure_write_index_not_overlap_reads_index()
+            )
+            or src.is_zero_elements()
+        ):
+            need_copy = True
+        else:
+            src.realize()
+            need_copy = not isinstance(src.get_layout(), FlexibleLayout)
+
+        if need_copy and not unsafe_alias:
             src = Pointwise.create(
                 device=src.get_device(),
                 dtype=src.get_dtype(),
