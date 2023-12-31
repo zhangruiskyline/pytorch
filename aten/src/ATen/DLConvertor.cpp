@@ -220,7 +220,7 @@ ScalarType toScalarType(const DLDataType& dtype) {
           break;
         default:
           TORCH_CHECK(
-              false, "Unsupported kDLBool bits " + c10::to_string(dtype.bits));
+              false, "Unsupported kDLBool bits " + std::to_string(dtype.bits));
       }
       break;
     default:

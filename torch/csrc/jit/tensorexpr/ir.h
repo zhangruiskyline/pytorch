@@ -826,7 +826,7 @@ class TORCH_API Intrinsics : public ExprNode<Intrinsics> {
         return "isnan";
       default:
         throw std::runtime_error(
-            "invalid op_type: " + c10::to_string(op_type()));
+            "invalid op_type: " + std::to_string(op_type()));
     }
   }
 

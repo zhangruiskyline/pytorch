@@ -1001,9 +1001,8 @@ std::string generate_code(
   std::string extra_params = "";
   std::string extra_args = "";
   for (size_t i = 0; i < extra_args_typenames.size(); i++) {
-    auto type = std::string(extra_args_typenames[i]);
-    auto name = "extra_arg_" + std::string(to_string(i));
-    extra_params += "," + type + " " + name;
+    auto name = "extra_arg_" + std::to_string(i);
+    extra_params += "," + extra_args_typenames[i] + " " + name;
     extra_args += ", " + name;
   }
   env.s("extra_params", extra_params);

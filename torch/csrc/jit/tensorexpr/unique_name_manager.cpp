@@ -27,7 +27,7 @@ const std::string& UniqueNameManager::get_unique_name(VarPtr v) {
     int count_v = count++;
     std::string unique_name = name_hint;
     if (count_v > 0) {
-      unique_name += "_" + c10::to_string(count_v);
+      unique_name += "_" + std::to_string(count_v);
     }
     if (all_unique_names_.count(unique_name) == 0) {
       all_unique_names_.insert(unique_name);
