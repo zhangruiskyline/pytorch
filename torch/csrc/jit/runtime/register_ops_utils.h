@@ -33,7 +33,6 @@
 #include <c10/util/SmallVector.h>
 #include <c10/util/irange.h>
 #include <c10/util/math_compat.h>
-#include <c10/util/string_utils.h>
 
 namespace torch::jit {
 constexpr inline c10::AliasAnalysisKind aliasAnalysisFromSchema() {

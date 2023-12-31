@@ -1,6 +1,5 @@
 #include <torch/csrc/jit/tensorexpr/unique_name_manager.h>
 
-#include <c10/util/string_utils.h>
 #include <torch/csrc/jit/tensorexpr/ir.h>
 #include <cctype>
 

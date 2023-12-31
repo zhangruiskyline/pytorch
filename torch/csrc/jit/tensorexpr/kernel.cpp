@@ -5,7 +5,6 @@
 #include <ATen/TensorGeometry.h>
 #include <c10/core/ScalarTypeToTypeMeta.h>
 #include <c10/util/irange.h>
-#include <c10/util/string_utils.h>
 #include <torch/csrc/jit/jit_log.h>
 #include <torch/csrc/jit/passes/graph_rewrite_helper.h>
 #include <torch/csrc/jit/passes/mkldnn_rewrite.h>

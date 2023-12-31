@@ -4,7 +4,6 @@
 #include <utility>
 #include <vector>
 
-#include <c10/util/string_utils.h>
 #include <torch/csrc/jit/tensorexpr/exceptions.h>
 #include <torch/csrc/jit/tensorexpr/expr.h>
 #include <torch/csrc/jit/tensorexpr/fwd_decls.h>

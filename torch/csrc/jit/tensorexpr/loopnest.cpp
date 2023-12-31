@@ -11,7 +11,6 @@
 
 #include <c10/util/Logging.h>
 #include <c10/util/irange.h>
-#include <c10/util/string_utils.h>
 
 #include <ATen/core/functional.h>
 #include <torch/csrc/jit/jit_log.h>
