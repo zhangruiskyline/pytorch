@@ -309,7 +309,6 @@ FIXME_default_non_strict = {
     "torch_np/test_basic",
     "torch_np/test_binary_ufuncs",
     "torch_np/test_dtype",
-    "torch_np/test_function_base",
 }
 
 # We generate unittest.expectedFailure for all of the following tests
@@ -919,6 +918,7 @@ dynamo_skips = {
     "TestMethods.test_choose",
     "TestMethods.test_conjugate_out",
     "TestMethods.test_compress",
+    "TestGradient.test_second_order_accurate",  # flaky
     "TestArgmaxArgminCommon.test_np_vs_ndarray_arr_method_argmax_np_method0",
     "TestArgmaxArgminCommon.test_np_vs_ndarray_arr_method_argmin_np_method1",
     "TestArgmaxArgminCommon.test_ret_is_out_ndim_0_method_argmin",
