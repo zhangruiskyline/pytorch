@@ -4,7 +4,10 @@
 #include <structmember.h>
 #include <torch/csrc/DynamicTypes.h>
 #include <torch/csrc/Exceptions.h>
+#include <torch/csrc/THP.h>
 #include <torch/csrc/utils/object_ptr.h>
+#include <torch/csrc/utils/pycfunction_helpers.h>
+#include <torch/csrc/utils/python_arg_parser.h>
 #include <torch/csrc/utils/python_numbers.h>
 #include <torch/csrc/utils/python_strings.h>
 #include <torch/csrc/utils/tensor_dtypes.h>
@@ -22,6 +25,22 @@ PyObject* THPDtype_New(at::ScalarType scalar_type, const std::string& name) {
   self_->scalar_type = scalar_type;
   std::strncpy(self_->name, name.c_str(), DTYPE_NAME_LEN);
   return self.release();
+  END_HANDLE_TH_ERRORS
+}
+
+PyObject* THPDtype_pyNewCustomDtype(
+    PyObject* type,
+    PyObject* args,
+    PyObject* kwargs) {
+  HANDLE_TH_ERRORS
+  static torch::PythonArgParser parser(
+      {"_custom_dtype(ScalarType scalartype, c10::string_view name)"});
+  torch::ParsedArgs<2> parsed_args;
+  auto r = parser.parse(args, kwargs, parsed_args);
+  if (r.idx == 0) {
+    return THPDtype_New(r.scalartype(0), r.string(1));
+  }
+  Py_RETURN_NONE;
   END_HANDLE_TH_ERRORS
 }
 
