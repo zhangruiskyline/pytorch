@@ -460,7 +460,7 @@ class NullContextVariable(ContextWrappingVariable):
 
 class StreamContextVariable(ContextWrappingVariable):
     @staticmethod
-    def create(tx, target_value, **kwargs):
+    def create_from_stream(tx, target_value, **kwargs):
         from .builder import wrap_fx_proxy_cls
 
         current_stream_method = get_interface_for_device(
@@ -521,11 +521,12 @@ class StreamContextVariable(ContextWrappingVariable):
         )
         self.state.cleanup_assert()
 
-    def module_name(self):
-        return "torch." + str(self.device)
-
-    def fn_name(self):
-        return "stream"
+    def reconstruct(self, codegen):
+        codegen.load_import_from("torch", "cuda.stream")
+        assert len(self.target_values) == 1
+        codegen(self.target_values[0])
+        codegen.extend_output(create_call_function(1, False))
+        return []
 
 
 class StreamVariable(VariableTracker):
@@ -533,12 +534,15 @@ class StreamVariable(VariableTracker):
         if proxy is not None and "example_value" in proxy.node.meta:
             assert proxy.node.meta["example_value"] == value
         assert (
-            value.device.type == device
+            value.device.type == device.type
         ), "stream value is not equal to the passed device"
         super().__init__(**kwargs)
         self.proxy = proxy
         self.value = value
         self.device = device
+        torch._dynamo.device_interface.register_interface_for_device(
+            self.device, torch._dynamo.device_interface.CudaInterface
+        )
 
     def call_method(
         self,
