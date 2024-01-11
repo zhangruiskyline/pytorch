@@ -38,7 +38,8 @@ from torch.testing._internal.common_methods_invocations import wrapper_set_seed
 from torch.testing._internal.common_cuda import (
     SM80OrLater, PLATFORM_SUPPORTS_FLASH_ATTENTION,
     PLATFORM_SUPPORTS_MEM_EFF_ATTENTION,
-    PLATFORM_SUPPORTS_FUSED_ATTENTION
+    PLATFORM_SUPPORTS_FUSED_ATTENTION,
+    PLATFORM_SUPPORTS_CUDNN_ATTENTION
 )
 
 if TEST_FAIRSEQ:
@@ -125,6 +126,8 @@ def get_platform_specific_sdpa():
         ret.append(SDPBackend.FLASH_ATTENTION)
     if PLATFORM_SUPPORTS_MEM_EFF_ATTENTION:
         ret.append(SDPBackend.EFFICIENT_ATTENTION)
+    if PLATFORM_SUPPORTS_CUDNN_ATTENTION:
+        ret.append(SDPBackend.CUDNN_ATTENTION)
     if not ret:
         # Add a placeholder, an empty list causes "An empty arg_values was passed to @parametrize"
         ret.append(SDPBackend.EFFICIENT_ATTENTION)
