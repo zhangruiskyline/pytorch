@@ -1558,5 +1558,24 @@ class TestTorchFunctionMode(TestCase):
             self.assertEqual(d_kwargs.index, 0)
 
 
+    def test_torch_compile_fallback(self):
+        class Mul2ModeF(torch.overrides.TorchFunctionMode):
+            def __torch_function__(cls, func, types, args=(), kwargs=None):
+                if kwargs is None:
+                    kwargs = {}
+                out = func(*args, **kwargs)
+                if isinstance(out, torch.Tensor):
+                    return out * 2
+                return out
+
+        def f(x):
+            return x.clone()
+
+        f_compiled = torch.compile(f, backend="aot_eager")
+
+        x = torch.ones(3, device="cpu")
+        with Mul2ModeF():
+            self.assertEqual(f(x), f_compiled(x))
+
 if __name__ == '__main__':
     run_tests()
