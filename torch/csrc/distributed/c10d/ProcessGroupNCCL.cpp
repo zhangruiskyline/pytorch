@@ -829,14 +829,14 @@ ProcessGroupNCCL::ProcessGroupNCCL(
             << ", SPLIT_COLOR: " << options_->split_color
             << ", TORCH_DISTRIBUTED_DEBUG: " << torch_distributed_debug
 #ifdef NCCL_HAS_COMM_REGISTER
-            << ", TORCH_NCCL_USE_TENSOR_REGISTER_ALLOCATOR_HOOK: "
-            << useTensorRegisterAllocatorHook_
+      << ", TORCH_NCCL_USE_TENSOR_REGISTER_ALLOCATOR_HOOK: "
+      << useTensorRegisterAllocatorHook_
 #endif
-            << ", TORCH_NCCL_ENABLE_MONITORING: "
-            << monitorThreadEnabled_.load()
-            << ", TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC: " << heartbeatTimeoutInSec_
-            << ", TORCH_NCCL_TRACE_BUFFER_SIZE: " << ncclTraceBufferSize_
-            << ", NCCL_DEBUG: " << nccl_debug << ", ID=" << this->getID();
+      << ", TORCH_NCCL_ENABLE_MONITORING: " << monitorThreadEnabled_.load()
+      << ", TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC: " << heartbeatTimeoutInSec_
+      << ", TORCH_NCCL_TRACE_BUFFER_SIZE: " << ncclTraceBufferSize_
+      << ", TORCH_NCCL_TIMEOUT_CHECK_MILSEC: " << timeoutCheckIntervalMilSec_
+      << ", NCCL_DEBUG: " << nccl_debug << ", ID=" << this->getID();
 
   if (options_->global_ranks_in_group.empty()) {
     this->globalRankStart = 0;
@@ -1185,6 +1185,7 @@ void ProcessGroupNCCL::shutdown() {
 }
 
 ProcessGroupNCCL::~ProcessGroupNCCL() {
+  LOG(INFO) << logPrefix() << "ProcessGroupNCCL destructor entered.";
   terminateProcessGroup_.store(true);
   workMetaListCV_.notify_one();
 
@@ -1192,6 +1193,7 @@ ProcessGroupNCCL::~ProcessGroupNCCL() {
   if (ncclCommWatchdogThread_.joinable()) {
     ncclCommWatchdogThread_.join();
   }
+  LOG(INFO) << logPrefix() << "ProcessGroupNCCL watchdog thread joined.";
 #endif
 
   if (onCompletionHookThread_.joinable())
@@ -1201,6 +1203,7 @@ ProcessGroupNCCL::~ProcessGroupNCCL() {
   // threads dying due to aborted communicator and raising a SIGABRT
   std::string abortReason = c10::str("Process Group destroyed on rank ", rank_);
   abort(abortReason);
+  LOG(INFO) << logPrefix() << "ProcessGroupNCCL abort finished.";
 
   // We need to wait for abort to finish before we can safely shut down
   // heartbeat monitoring thread.
@@ -1238,20 +1241,62 @@ void ProcessGroupNCCL::terminateProcess(std::string errMsg) {
   LOG(FATAL) << logPrefix() << errMsg;
 }
 
+int computeDeltaMS(
+    std::chrono::time_point<std::chrono::steady_clock> start,
+    std::chrono::time_point<std::chrono::steady_clock> end) {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
+      .count();
+}
+
 void ProcessGroupNCCL::heartbeatMonitor() {
   uint64_t heartBeatCounter = 0ULL;
+  int heartBeatTimeout = (dumpOnTimeout_ && uid_ == 0)
+      ? timeoutCheckIntervalMilSec_
+      : heartbeatTimeoutInSec_ * 1000;
+  auto lastTimePollStore = std::chrono::steady_clock::now();
+  std::future<bool> asyncDebugDump;
   while (true) {
     // This won't have any lock since this lock is only used here.
     // Please be aware that mutex `monitorMutex_` should not be used
     // somewhere else to avoid the deadlock.
     std::unique_lock<std::mutex> lock(monitorMutex_);
     if (monitorWakeUpCV_.wait_for(
-            lock, std::chrono::seconds(heartbeatTimeoutInSec_), [&] {
+            lock, std::chrono::milliseconds(heartBeatTimeout), [&] {
               return terminateHeartbeatMonitorThread_.load();
             })) {
       // For the normal complete or user interception, monitorWakeUpCV_
       // will get notified, we early return and exit heartbeatMonitor.
       return;
+    }
+
+    // We put extra functionality in the thread for the default PG (aka, uid_=0)
+    // because the signal is same across different PGs. We only need to run
+    // once per process to avoid duplicate things performed in too many separate
+    // threads. For example, we check a global flag on the TCPStore periodically
+    // to see if any PG on any rank observed a timeout and signaled peers to
+    // dump debugging info, and we avoid hammering the TCPStore from all PGs on
+    // the same rank.
+    if (dumpOnTimeout_ && uid_ == 0) {
+      auto currentTime = std::chrono::steady_clock::now();
+      // We poll store to see if some ranks have flagged a timeout when
+      // we haven't polled for `heartbeat_timeout` seconds and there haven't
+      // any work added or removed for `watchdog_timeout` seconds.
+      if (computeDeltaMS(lastWorkListUpdateTime_, currentTime) >=
+              kWatchdogThreadSleepMillis &&
+          computeDeltaMS(lastTimePollStore, currentTime) >=
+              timeoutCheckIntervalMilSec_) {
+        lastTimePollStore = currentTime;
+        if (globalStore_->check({std::string(TIMEOUT_DUMP)})) {
+          auto wakeUpTime = getWakeupTime(waitTimeoutDumpInMilSec_);
+          asyncDebugDump = launchAsyncDebugDump();
+          waitForDumpOrTimeout(asyncDebugDump, wakeUpTime);
+          const auto exitMsg = c10::str(
+              logPrefix(),
+              "Another rank reported a timeout and signaled a global abort.");
+          LOG(ERROR) << exitMsg;
+          C10_THROW_ERROR(DistBackendError, exitMsg);
+        }
+      }
     }
 
     // Check the heart beat of watchdog thread.
@@ -1279,7 +1324,7 @@ void ProcessGroupNCCL::heartbeatMonitor() {
   auto wakeUpTime = getWakeupTime(waitTimeoutDumpInMilSec_);
   // Store debug info to storage if no other thread does it. (By default to
   // local disk)
-  std::future<bool> asyncDebugDump = launchAsyncDebugDump();
+  asyncDebugDump = launchAsyncDebugDump();
 
   // There are two possible cases for the watchdog thread exit:
   // Case one: desync report runs quickly, and it follows the step:
@@ -1312,11 +1357,14 @@ void ProcessGroupNCCL::heartbeatMonitor() {
     // we throw exception and make the whole process to be killed.
     // TODO(fduwjj): After having a hang debug wiki, we need to update the wiki
     // url here.
+    const auto timeOutPeriod = heartBeatTimeout != heartbeatTimeoutInSec_ * 1000
+        ? c10::str(heartBeatTimeout, " milliseconds ")
+        : c10::str(heartbeatTimeoutInSec_, " seconds ");
     const auto exitMsg = c10::str(
         logPrefix(),
         "ProcessGroupNCCL's watchdog got stuck for ",
-        heartbeatTimeoutInSec_,
-        "seconds without making progress in monitoring enqueued collectives. ",
+        timeOutPeriod,
+        "without making progress in monitoring enqueued collectives. ",
         "This typically indicates a NCCL/CUDA API hang blocking the watchdog, ",
         "and could be triggered by another thread holding the GIL inside a ",
         "CUDA api, or other deadlock-prone behaviors.",
@@ -1467,7 +1515,6 @@ const int& ProcessGroupNCCL::globalRank() const {
 void ProcessGroupNCCL::watchdogHandler() {
   bool done = false;
   lastWorkListUpdateTime_ = std::chrono::steady_clock::now();
-  auto lastTimePollStore = std::chrono::steady_clock::now();
   c10::optional<std::future<bool>> optAsyncDebugDump;
 
   std::list<ProcessGroupNCCL::WorkNCCL> completedWorkList;
