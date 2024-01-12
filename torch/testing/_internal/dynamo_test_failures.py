@@ -87,14 +87,11 @@ FIXME_default_non_strict = {
     "test_ops_gradients",
     "test_ops_jit",
     "test_legacy_vmap",
-    "test_package",
     "test_python_dispatch",
     "test_quantization",
     "test_tensorexpr",
     "test_tensorexpr_pybind",
     "test_torch",
-    "test_vulkan",
-    "test_xnnpack_integration",
 }
 
 # We generate unittest.expectedFailure for all of the following tests
@@ -4075,6 +4072,7 @@ dynamo_expected_failures = {
     "TestNamedTensor.test_comparison_ops",  # test_namedtensor
     "TestContentStoreCPU.test_repeated_hash_cpu",  # test_content_store
     "TestLazyTensor.test_tensor_ctr",  # lazy/test_ts_opinfo
+    "TestAnalyze.test_trace_dependencies",  # test_package
 }
 
 dynamo_skips = {
@@ -8483,6 +8481,9 @@ dynamo_skips = {
     "TestBinaryUfuncsCPU.test_xlogy_xlog1py_cpu_float32_int32",  # known py38 fail
     "TestFXExperimental.test_optimize_for_inference_cpu",  # known py38 fail
     "TestFXExperimental.test_optimize_for_inference_cpu_torchvision",
+    "TestXNNPACKOps.test_linear_1d_input",  # flaky
+    "TestXNNPACKOps.test_conv2d",  # flaky
+    "TestXNNPACKOps.test_conv2d_transpose",  # flaky
     "TestForeachCPU.test_add_scalar_with_empty_list_and_empty_tensor_cpu_int32",  # known py38 fail
     "TestForeachCPU.test_add_scalar_with_empty_list_and_empty_tensor_cpu_int64",  # known py38 fail
     "TestForeachCPU.test_add_scalar_with_empty_list_and_empty_tensor_cpu_int16",  # known py38 fail
@@ -8493,4 +8494,6 @@ dynamo_skips = {
     "TestDataLoaderPersistentWorkers.test_fd_limit_exceeded",  # known py38 fail
     "TestLazyDynamicOps.test_nonzero_dynamic",  # known py311 fail
     "TestLazyTensor.test_view_mark_step_preserved",  # known py311 fail
+    "TestRepackage.test_repackage_import_indirectly_via_parent_module",  # known py311 fail
+    "TestPackageScript.test_load_shared_tensors_repackaged",  # known py311 fail
 }
