@@ -105,6 +105,13 @@ class BaseUserFunctionVariable(VariableTracker):
 class UserFunctionVariable(BaseUserFunctionVariable):
     """Some unsupported user-defined global function"""
 
+    @classmethod
+    def create_with_source(cls, value, source):
+        return cls(
+            value,
+            source=source,
+        )
+
     def __init__(self, fn, is_constant=False, **kwargs):
         super().__init__(**kwargs)
         if getattr(fn, "_dynamo_marked_constant", False):
@@ -140,6 +147,9 @@ class UserFunctionVariable(BaseUserFunctionVariable):
 
     def get_globals(self):
         return self.fn.__globals__
+
+    def as_proxy(self):
+        return self.fn
 
     def bind_args(self, parent, args, kwargs):
         assert not self.is_constant
@@ -253,6 +263,10 @@ class UserFunctionVariable(BaseUserFunctionVariable):
 
     def export_freevars(self, parent, child):
         pass
+
+    def call_hasattr(self, tx, name: str) -> VariableTracker:
+        result = hasattr(self.fn, name)
+        return variables.ConstantVariable.create(result)
 
     def call_function(
         self, tx, args: "List[VariableTracker]", kwargs: "Dict[str, VariableTracker]"

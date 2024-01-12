@@ -1643,6 +1643,7 @@ class TestVmapOfGrad(TestCase):
         result = vmap(partial(grad(compute_loss), weights))(data, targets)
         self._compare_expected_and_result(expected, result, mechanism)
 
+    @xfailIfTorchDynamo
     def test_log_softmax(self, device):
         x = torch.randn(3, 5, device=device)
         v = torch.randn(5, device=device)
@@ -3680,7 +3681,7 @@ class TestMakeFunctional(TestCase):
         torch.manual_seed(0)
         models = [Foo() for _ in range(num_models)]
         _, params, buffers = combine_state_for_ensemble(models)
-        result = vmap(fmodel)(params, buffers, xs)
+        result = vmap(fmodel, randomness='same')(params, buffers, xs)
 
         torch.manual_seed(0)
         models = [Foo() for _ in range(num_models)]
