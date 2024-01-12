@@ -105,10 +105,14 @@ def get_tolerances(
     return atol, rtol
 
 backend_map = {
-    SDPBackend.MATH: {"enable_math": True, "enable_flash": False, "enable_mem_efficient": False},
-    SDPBackend.FLASH_ATTENTION: {"enable_math": False, "enable_flash": True, "enable_mem_efficient": False},
+    SDPBackend.MATH: {"enable_math": True, "enable_flash": False, "enable_mem_efficient": False,
+        "enable_cudnn": False},
+    SDPBackend.FLASH_ATTENTION: {"enable_math": False, "enable_flash": True, "enable_mem_efficient": False, 
+        "enable_cudnn": False},
     SDPBackend.EFFICIENT_ATTENTION: {
-        "enable_math": False, "enable_flash": False, "enable_mem_efficient": True}
+        "enable_math": False, "enable_flash": False, "enable_mem_efficient": True, "enable_cudnn": False},
+    SDPBackend.CUDNN_ATTENTION: {
+        "enable_math": False, "enable_flash": False, "enable_mem_efficient": False, "enable_cudnn": True}
 }
 
 def query_key_value_clones(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, dtype: torch.dtype = None):
