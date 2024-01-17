@@ -770,6 +770,7 @@ ProcessGroupNCCL::ProcessGroupNCCL(
       getCvarInt(TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC, 60 * 10 /*10 Mins*/);
   waitTimeoutDumpInMilSec_ =
       getCvarInt(TORCH_NCCL_WAIT_TIMEOUT_DUMP_MILSEC, 2000);
+  coordCheckIntervalMilSec_ = getCvarInt(TORCH_NCCL_COORD_CHECK_MILSEC, 1000);
   ncclTraceBufferSize_ = getCvarInt(TORCH_NCCL_TRACE_BUFFER_SIZE, 0);
   enableCollecticeHashDebug_ = (dist_debug_level_ >= DebugLevel::Detail);
   // store_ usually is wrapped with PrefixStore and the prefix is different
@@ -859,6 +860,7 @@ ProcessGroupNCCL::ProcessGroupNCCL(
             << monitorThreadEnabled_.load()
             << ", TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC: " << heartbeatTimeoutInSec_
             << ", TORCH_NCCL_TRACE_BUFFER_SIZE: " << ncclTraceBufferSize_
+            << ", TORCH_NCCL_COORD_CHECK_MILSEC: " << coordCheckIntervalMilSec_
             << ", ID=" << this->getID();
 
   if (options_->global_ranks_in_group.empty()) {
@@ -1549,7 +1551,7 @@ void ProcessGroupNCCL::watchdogHandler() {
               (currentTime - lastTimePollStore))
               .count();
       if (timeSinceLastWorkListUpdate >= kWatchdogThreadSleepMillis &&
-          timeSinceLastPollStore >= heartbeatTimeoutInSec_ * 1000) {
+          timeSinceLastPollStore >= coordCheckIntervalMilSec_) {
         lastTimePollStore = currentTime;
         if (globalStore_->check({std::string(TIMEOUT_DUMP)}) &&
             !optAsyncDebugDump) {
@@ -1635,7 +1637,7 @@ void ProcessGroupNCCL::watchdogHandler() {
 
       // Clean up completed work
       if (work.isCompleted()) {
-        NCCLTraceBuffer::get()->retire_id(work.trace_id_);
+        NCCLTraceBuffer::get()->retire_id(work.trace_id_, true);
         if (onCompletionHook_) {
           // Move Work object to completedWorkList_ to be consumed by the hook
           // thread
@@ -2330,18 +2332,16 @@ c10::intrusive_ptr<c10::ivalue::Future> ProcessGroupNCCL::WorkNCCL::
 }
 
 float ProcessGroupNCCL::WorkNCCL::getDuration() const {
-  TORCH_CHECK(timingEnabled_, "getDuration only works if timing was enabled")
+  TORCH_CHECK(timingEnabled_, "getDuration only works if timing was enabled");
   TORCH_CHECK(
-      ncclStartEvents_->size() == 1,
-      "getDuration only works for single device per ProcessGroup.");
+      ncclStartEvents_,
+      "getDuration only works if ncclStartEvents_ is populated, true if timing enabled");
   TORCH_CHECK(
-      ncclEndEvents_->size() == 1,
-      "getDuration only works for single device per ProcessGroup.");
-  TORCH_CHECK(
-      (*ncclEndEvents_)[0].query(),
-      "getDuration can only be called after work is succeeded.")
-  return (*ncclStartEvents_)[0].elapsed_time((*ncclEndEvents_)[0]);
+      ncclEndEvents_,
+      "getDuration only works if ncclEndEvents_ is populated, which should always be true");
+  return getDurationFromFirstEvent(*ncclStartEvents_, *ncclEndEvents_);
 }
+
 uint64_t ProcessGroupNCCL::WorkNCCL::getSequencenumber() const {
   return seq_;
 }
