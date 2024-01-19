@@ -95,7 +95,7 @@ PyObject* THCPModule_setDevice_wrap(PyObject* self, PyObject* arg) {
 PyObject* THCPModule_exchangeDevice(PyObject* self, PyObject* arg) {
   HANDLE_TH_ERRORS
   TORCH_CHECK(THPUtils_checkLong(arg), "invalid argument to exchangeDevice");
-  int64_t device = THPUtils_unpackLong(arg);
+  int device = THPUtils_unpackInt(arg);
   if (device < 0) {
     return THPUtils_packInt32(-1);
   }
@@ -110,7 +110,7 @@ PyObject* THCPModule_exchangeDevice(PyObject* self, PyObject* arg) {
 PyObject* THCPModule_maybeExchangeDevice(PyObject* self, PyObject* arg) {
   HANDLE_TH_ERRORS
   TORCH_CHECK(THPUtils_checkLong(arg), "invalid argument to exchangeDevice");
-  int64_t device = THPUtils_unpackLong(arg);
+  int device = THPUtils_unpackInt(arg);
   if (device < 0) {
     return THPUtils_packInt32(-1);
   }
@@ -189,7 +189,7 @@ PyObject* THCPModule_getCurrentStream_wrap(
   TORCH_CHECK(
       THPUtils_checkLong(device_index), "invalid argument to getCurrentStream");
   int64_t device = THPUtils_unpackLong(device_index);
-  auto stream = at::cuda::getCurrentCUDAStream(device);
+  auto stream = at::cuda::getCurrentCUDAStream(static_cast<c10::DeviceIndex>(device));
   PyObject* output_tuple = PyTuple_New(3);
   PyTuple_SetItem(
       output_tuple, 0, THPUtils_packInt64(static_cast<int64_t>(stream.id())));
@@ -212,7 +212,7 @@ PyObject* THCPModule_getCurrentStream_raw(
   TORCH_CHECK(
       THPUtils_checkLong(device_index), "invalid argument to getCurrentStream");
   int64_t device = THPUtils_unpackLong(device_index);
-  return PyLong_FromVoidPtr(at::cuda::getCurrentCUDAStream(device).stream());
+  return PyLong_FromVoidPtr(at::cuda::getCurrentCUDAStream(static_cast<c10::DeviceIndex>(device)).stream());
   END_HANDLE_TH_ERRORS
 }
 
@@ -223,7 +223,7 @@ PyObject* THCPModule_getDefaultStream_wrap(
   TORCH_CHECK(
       THPUtils_checkLong(device_index), "invalid argument to getDefaultStream");
   int64_t device = THPUtils_unpackLong(device_index);
-  auto stream = at::cuda::getDefaultCUDAStream(device);
+  auto stream = at::cuda::getDefaultCUDAStream(static_cast<c10::DeviceIndex>(device));
   PyObject* output_tuple = PyTuple_New(3);
   PyTuple_SetItem(
       output_tuple, 0, THPUtils_packInt64(static_cast<int64_t>(stream.id())));
@@ -513,7 +513,7 @@ PyObject* THCPModule_hasPrimaryContext(PyObject* _unused, PyObject* arg) {
   HANDLE_TH_ERRORS
   TORCH_CHECK(
       THPUtils_checkLong(arg), "invalid argument to has_primary_context");
-  int64_t device_index = static_cast<int64_t>(THPUtils_unpackLong(arg));
+  auto device_index = static_cast<c10::DeviceIndex>(THPUtils_unpackLong(arg));
   if (c10::cuda::hasPrimaryContext(device_index)) {
     Py_RETURN_TRUE;
   } else {
@@ -538,7 +538,7 @@ PyObject* THCPModule_setMemoryFraction(PyObject* _unused, PyObject* args) {
   double fraction = PyFloat_AsDouble(fraction_o);
   int64_t device = PyLong_AsLongLong(device_o);
 
-  c10::cuda::CUDACachingAllocator::setMemoryFraction(fraction, device);
+  c10::cuda::CUDACachingAllocator::setMemoryFraction(fraction, static_cast<int>(device));
   END_HANDLE_TH_ERRORS
   Py_RETURN_NONE;
 }
@@ -833,7 +833,7 @@ PyObject* THCPModule_cudaSetSyncDebugMode(PyObject* _unused, PyObject* arg) {
   TORCH_CHECK(
       debug_mode >= 0 && debug_mode <= 2,
       "invalid value of debug_mode, expected one of 0,1,2");
-  c10::cuda::SyncDebugMode l;
+  c10::cuda::SyncDebugMode l = c10::cuda::SyncDebugMode::L_DISABLED;
   switch (debug_mode) {
     case 0:
       l = c10::cuda::SyncDebugMode::L_DISABLED;
@@ -845,7 +845,6 @@ PyObject* THCPModule_cudaSetSyncDebugMode(PyObject* _unused, PyObject* arg) {
       l = c10::cuda::SyncDebugMode::L_ERROR;
       break;
     default:
-      l = c10::cuda::SyncDebugMode::L_DISABLED;
       break; // can't happen
   }
   c10::cuda::warning_state().set_sync_debug_mode(l);
@@ -1236,6 +1235,7 @@ static void registerCudaPluggableAllocator(PyObject* module) {
 
         removeStorageDeleterFns(ptrs, freed_pointer_set);
         std::vector<c10::StorageImpl*> storages_to_add_deleters_to;
+        storages_to_add_deleters_to.reserve(storages_to_add_deleters_to_ptr.size());
         for (size_t ptr_int : storages_to_add_deleters_to_ptr) {
           storages_to_add_deleters_to.push_back((c10::StorageImpl*)ptr_int);
         }
