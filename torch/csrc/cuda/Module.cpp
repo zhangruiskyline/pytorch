@@ -189,7 +189,8 @@ PyObject* THCPModule_getCurrentStream_wrap(
   TORCH_CHECK(
       THPUtils_checkLong(device_index), "invalid argument to getCurrentStream");
   int64_t device = THPUtils_unpackLong(device_index);
-  auto stream = at::cuda::getCurrentCUDAStream(static_cast<c10::DeviceIndex>(device));
+  auto stream =
+      at::cuda::getCurrentCUDAStream(static_cast<c10::DeviceIndex>(device));
   PyObject* output_tuple = PyTuple_New(3);
   PyTuple_SetItem(
       output_tuple, 0, THPUtils_packInt64(static_cast<int64_t>(stream.id())));
@@ -212,7 +213,9 @@ PyObject* THCPModule_getCurrentStream_raw(
   TORCH_CHECK(
       THPUtils_checkLong(device_index), "invalid argument to getCurrentStream");
   int64_t device = THPUtils_unpackLong(device_index);
-  return PyLong_FromVoidPtr(at::cuda::getCurrentCUDAStream(static_cast<c10::DeviceIndex>(device)).stream());
+  return PyLong_FromVoidPtr(
+      at::cuda::getCurrentCUDAStream(static_cast<c10::DeviceIndex>(device))
+          .stream());
   END_HANDLE_TH_ERRORS
 }
 
@@ -223,7 +226,8 @@ PyObject* THCPModule_getDefaultStream_wrap(
   TORCH_CHECK(
       THPUtils_checkLong(device_index), "invalid argument to getDefaultStream");
   int64_t device = THPUtils_unpackLong(device_index);
-  auto stream = at::cuda::getDefaultCUDAStream(static_cast<c10::DeviceIndex>(device));
+  auto stream =
+      at::cuda::getDefaultCUDAStream(static_cast<c10::DeviceIndex>(device));
   PyObject* output_tuple = PyTuple_New(3);
   PyTuple_SetItem(
       output_tuple, 0, THPUtils_packInt64(static_cast<int64_t>(stream.id())));
@@ -538,7 +542,8 @@ PyObject* THCPModule_setMemoryFraction(PyObject* _unused, PyObject* args) {
   double fraction = PyFloat_AsDouble(fraction_o);
   int64_t device = PyLong_AsLongLong(device_o);
 
-  c10::cuda::CUDACachingAllocator::setMemoryFraction(fraction, static_cast<int>(device));
+  c10::cuda::CUDACachingAllocator::setMemoryFraction(
+      fraction, static_cast<int>(device));
   END_HANDLE_TH_ERRORS
   Py_RETURN_NONE;
 }
@@ -994,7 +999,7 @@ static void registerCudaPluggableAllocator(PyObject* module) {
 
   m.def(
       "_cuda_changeCurrentAllocator",
-      [](std::shared_ptr<c10::cuda::CUDACachingAllocator::CUDAAllocator>
+      [](const std::shared_ptr<c10::cuda::CUDACachingAllocator::CUDAAllocator>&
              allocator) {
         torch::cuda::CUDAPluggableAllocator::changeCurrentAllocator(allocator);
       });
@@ -1196,8 +1201,8 @@ static void registerCudaPluggableAllocator(PyObject* module) {
       "_cuda_setCheckpointPoolState",
       [](int device,
          std::shared_ptr<c10::cuda::CUDACachingAllocator::AllocatorState> pps,
-         std::vector<size_t> stale_storages_ptr,
-         std::vector<size_t> storages_to_add_deleters_to_ptr = {}) {
+         const std::vector<size_t>& stale_storages_ptr,
+         const std::vector<size_t>& storages_to_add_deleters_to_ptr = {}) {
         std::unordered_set<c10::StorageImpl*> ptr_set;
         // iterate on std::vector for determinism
         std::vector<c10::StorageImpl*> ptrs;
@@ -1235,7 +1240,8 @@ static void registerCudaPluggableAllocator(PyObject* module) {
 
         removeStorageDeleterFns(ptrs, freed_pointer_set);
         std::vector<c10::StorageImpl*> storages_to_add_deleters_to;
-        storages_to_add_deleters_to.reserve(storages_to_add_deleters_to_ptr.size());
+        storages_to_add_deleters_to.reserve(
+            storages_to_add_deleters_to_ptr.size());
         for (size_t ptr_int : storages_to_add_deleters_to_ptr) {
           storages_to_add_deleters_to.push_back((c10::StorageImpl*)ptr_int);
         }
