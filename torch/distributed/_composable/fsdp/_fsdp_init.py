@@ -1,3 +1,4 @@
+import itertools
 from typing import List, Set, Tuple
 
 import torch
@@ -6,9 +7,9 @@ import torch.nn as nn
 
 from torch._prims_common import DeviceLikeType
 
-from torch.distributed._tensor import DeviceMesh, init_device_mesh
+from torch.distributed._tensor import DeviceMesh, DTensor, init_device_mesh
 
-from ._fsdp_common import _is_composable_with_fsdp
+from ._fsdp_common import _is_composable_with_fsdp, FSDPMeshInfo
 from ._fsdp_state import _get_module_fsdp_state
 
 
@@ -83,3 +84,31 @@ def _get_managed_states(
             buffers.append(buffer)
             visited_buffers.add(buffer)
     return params, buffers
+
+
+def _move_states_to_device(
+    params: List[nn.Parameter],
+    buffers: List[torch.Tensor],
+    device: torch.device,
+    mesh_info: FSDPMeshInfo,
+) -> None:
+    """
+    We have FSDP move states to device for simpler and faster initialization
+    since FSDP almost always uses CUDA for training. We move parameters/buffers
+    rather than modules to allow ignoring specific states in the future.
+    """
+    # TODO: De-duplicate with `_apply` after `swap_tensors` path lands:
+    # https://github.com/pytorch/pytorch/issues/115792
+    for tensor in itertools.chain(params, buffers):
+        if tensor.device == device:
+            continue
+        if isinstance(tensor, DTensor):
+            if (dtensor_mesh_type := tensor._spec.mesh.device_type) != device.type:
+                raise ValueError(
+                    "Requires DTensor to have mesh of the same type as the FSDP mesh "
+                    f"but got {dtensor_mesh_type} for DTensor and {device.type} for FSDP"
+                )
+            raise AssertionError(
+                f"Expects DTensor to be moved to {dtensor_mesh_type} but got {tensor.device}"
+            )
+        tensor.data = tensor.to(device)
