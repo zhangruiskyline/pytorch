@@ -63,6 +63,8 @@ class ForeachFuncWrapper:
                 actual = self.func(*inputs, **kwargs)
             keys = tuple([e.key for e in p.key_averages()])
             mta_called = any("multi_tensor_apply_kernel" in k for k in keys)
+            print(f"mta_called: {mta_called}, expect_fastpath: {expect_fastpath}, zero_size: {zero_size}")
+
             assert mta_called == (expect_fastpath and (not zero_size))
         else:
             actual = self.func(*inputs, **kwargs)
