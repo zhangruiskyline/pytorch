@@ -12,7 +12,7 @@ LINUX_TMP_DIR_WIN=$(cygpath -u "${TMP_DIR_WIN}")
 # Be conservative here when rolling out the new AMI with conda. This will try
 # to install conda as before if it couldn't find the conda installation. This
 # can be removed eventually after we gain enough confidence in the AMI
-if [ ! -f "$CONDA_PARENT_DIR/Miniconda3" ]; then
+if [ ! -d "$CONDA_PARENT_DIR/Miniconda3" ]; then
   export INSTALL_FRESH_CONDA=1
 fi
 
