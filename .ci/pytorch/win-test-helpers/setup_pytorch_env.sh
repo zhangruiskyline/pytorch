@@ -49,4 +49,4 @@ if [[ "${USE_CUDA}" == "1" ]]; then
 
 fi
 
-export PYTHONPATH=$LINUX_TMP_DIR_WIN/build;$PYTHONPATH
+export PYTHONPATH="$LINUX_TMP_DIR_WIN/build;$PYTHONPATH"
