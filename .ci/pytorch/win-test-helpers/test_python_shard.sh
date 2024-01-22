@@ -9,10 +9,10 @@ if [[ "${SHARD_NUMBER}" == "1" ]]; then
 
     if [ -f "${GFLAGS_EXE}" ]; then
         echo Some smoke tests
-        "$GFLAGS_EXE" /i python.exe +sls
+        "$GFLAGS_EXE" -i python.exe +sls
         python "$SCRIPT_HELPERS_DIR/run_python_nn_smoketests.py"
 
-        "$GFLAGS_EXE" /i python.exe -sls
+        "$GFLAGS_EXE" -i python.exe -sls
     fi
 fi
 
