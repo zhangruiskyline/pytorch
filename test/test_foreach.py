@@ -13,7 +13,7 @@ from torch.testing import make_tensor
 from torch.testing._comparison import default_tolerances
 from torch.testing._internal.common_cuda import TEST_MULTIGPU
 from torch.testing._internal.common_utils import \
-    TestCase, run_tests, TEST_WITH_ROCM, skipIfTorchDynamo, parametrize, gradcheck
+    TestCase, run_tests, TEST_WITH_ROCM, skipIfTorchDynamo, parametrize, gradcheck, IS_WINDOWS
 from torch.testing._internal.common_device_type import \
     (instantiate_device_type_tests, dtypes, onlyCUDA, ops, OpDTypes)
 from torch.testing._internal.common_methods_invocations import (
@@ -55,7 +55,7 @@ class ForeachFuncWrapper:
         actual = None
         zero_size = kwargs.pop("zero_size", False)
         if (
-            is_cuda and
+            not IS_WINDOWS and is_cuda and
             torch.autograd.kineto_available() and
             torch.profiler.ProfilerActivity.CUDA in torch.profiler.supported_activities()
         ):
