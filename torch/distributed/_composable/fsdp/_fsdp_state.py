@@ -83,6 +83,10 @@ class FSDPState(_State):
                 if module is not root_module:
                     state._is_root = False
                 self._all_states.append(state)
+        if self._fsdp_param_group:
+            # For the root, do not reshard after forward since for training,
+            # the parameters would be freed and all-gathered immediately
+            self._fsdp_param_group.post_forward_mesh_info = None
         self._init_fqns()
         self._init_shared_state()
 
