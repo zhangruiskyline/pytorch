@@ -393,6 +393,7 @@ def _shard_orig_param_state(
     )
     if not shard_param_info.in_shard:
         return {}
+
     # Flatten and shard the state.
     new_optim_state: Dict[str, Any] = {}
     intra_param_start_idx = shard_param_info.intra_param_start_idx
@@ -403,8 +404,17 @@ def _shard_orig_param_state(
             and value.dim() > 0
             and fsdp_state.sharding_strategy != ShardingStrategy.NO_SHARD
         ):
-            value = value.flatten()[intra_param_start_idx : intra_param_end_idx + 1].clone()  # type: ignore[operator]
+            if fsdp_state._device_mesh is not None:
+                # We have to call synchronize() if the tensor is gathered from
+                # DTensor.  Otherwise, the later `clone()` will cause errors.
+                # TODO: this is a temporary fix. We need to figure out the root
+                # cause
+                torch.cuda.synchronize()
+            value = value.flatten()[
+                intra_param_start_idx : intra_param_end_idx + 1  # type: ignore[operator]
+            ].clone()
         new_optim_state[state_name] = value
+    del optim_state
     return new_optim_state
 
 
