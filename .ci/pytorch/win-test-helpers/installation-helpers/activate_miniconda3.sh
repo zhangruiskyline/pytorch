@@ -23,4 +23,6 @@ if [[ "$INSTALL_FRESH_CONDA" == "1" ]]; then
 fi
 
 # Activate conda so that we can use its commands, i.e. conda, python, pip
-$CONDA_PARENT_DIR/Miniconda3/Scripts/activate.bat $CONDA_PARENT_DIR/Miniconda3
+# This is a batch file
+# shellcheck disable=SC1091
+source $CONDA_PARENT_DIR/Miniconda3/Scripts/activate $CONDA_PARENT_DIR/Miniconda3
