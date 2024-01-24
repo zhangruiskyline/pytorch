@@ -5,6 +5,7 @@
 #include <ATen/FuncTorchTLS.h>
 #include <ATen/FunctionalTensorWrapper.h>
 #include <ATen/TensorSubclassLikeUtils.h>
+#include <ATen/core/PythonFallbackKernel.h>
 #include <ATen/core/PythonOpRegistrationTrampoline.h>
 #include <ATen/core/SingletonSymNodeImpl.h>
 #include <ATen/core/dispatch/Dispatcher.h>
@@ -815,10 +816,13 @@ void initDispatchBindings(PyObject* module) {
         include_set.has(c10::DispatchKey::FuncTorchDynamicLayerBackMode));
   });
 
-  m.def("_get_singleton_int", [](int64_t data, int64_t coeff) {
-    return c10::SymInt(c10::SymNode(
-        c10::make_intrusive<c10::SingletonSymNodeImpl>(data, coeff)));
-  });
+  m.def(
+      "_get_singleton_int",
+      [](int64_t data, int64_t coeff, const at::Tensor& vec, int64_t sum_vec) {
+        return c10::SymInt(
+            c10::SymNode(c10::make_intrusive<c10::SingletonSymNodeImpl>(
+                data, coeff, vec, sum_vec, c10::SingletonVariant::PYTHON)));
+      });
 
   m.def("_get_constant_bool_symnode", [](int64_t data) {
     return c10::SymNode(

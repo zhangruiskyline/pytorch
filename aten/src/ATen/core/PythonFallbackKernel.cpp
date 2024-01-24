@@ -1,7 +1,10 @@
-#include <c10/core/impl/TorchDispatchModeTLS.h>
-#include <c10/core/impl/PythonDispatcherTLS.h>
 #include <ATen/core/PythonFallbackKernel.h>
+
+#include <c10/core/impl/TorchDispatchModeTLS.h>
+#include <c10/core/impl/PyInterpreter.h>
+#include <c10/core/impl/PythonDispatcherTLS.h>
 #include <c10/core/SafePyObject.h>
+#include <ATen/core/SingletonSymNodeImpl.h>
 
 namespace {
 
@@ -88,6 +91,14 @@ void pythonFallback(const c10::OperatorHandle& op, torch::jit::Stack* stack) {
           return;
         }
       }
+    } else if (ivalue.isSymIntList()) {
+      for (const auto& nv : ivalue.toListRef()) {
+        // IValues tagged SymInt are guaranteed to be heap_allocated
+        if (nv.isSymInt() && nv.toSymNodeImplUnowned()->key_set().has(c10::DispatchKey::Python)) {
+          (*c10::impl::get_global_pyinterpreter())->dispatch(op, stack);
+          return;
+        }
+      }
     }
   }
   TORCH_INTERNAL_ASSERT(0, "Hit Python dispatch key but no arguments had PyInterpreter (no tensor args?)");
@@ -146,7 +157,6 @@ MaybeSetTLSOnEntryGuard::~MaybeSetTLSOnEntryGuard() {
     tls_on_entry = c10::nullopt;
   }
 }
-
 
 } // namespace impl
 } // namespace at
