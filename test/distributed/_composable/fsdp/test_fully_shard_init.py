@@ -3,8 +3,11 @@
 import unittest
 
 import torch
+from _test_fully_shard_common import MLP
 
+from torch.distributed._composable.fsdp import fully_shard
 from torch.distributed._composable.fsdp._fsdp_init import _normalize_device
+from torch.distributed.device_mesh import init_device_mesh
 from torch.testing._internal.common_cuda import TEST_CUDA
 from torch.testing._internal.common_fsdp import FSDPTestMultiThread
 from torch.testing._internal.common_utils import run_tests
@@ -39,6 +42,30 @@ class TestFullyShardDeviceArg(FSDPTestMultiThread):
             with torch.cuda.device(1):
                 for device in ("cuda", torch.device("cuda")):
                     self.assertEqual(_normalize_device(device), torch.device("cuda", 1))
+
+
+class TestFullyShardMeshArg(FSDPTestMultiThread):
+    """Tests the ``mesh`` argument."""
+
+    @property
+    def world_size(self) -> int:
+        return 2
+
+    @unittest.skipIf(not TEST_CUDA, "no cuda")
+    def test_invalid_mesh_ndim(self):
+        mesh = init_device_mesh("cuda", (self.world_size, 1, 1))
+        model = MLP(8)
+        regex = r"fully\_shard expects a 1D or 2D DeviceMesh but got DeviceMesh\(\[\[\[0\]\], \[\[1\]\]\]\)"
+        with self.assertRaisesRegex(ValueError, regex):
+            fully_shard(model, mesh=mesh, device="cuda")
+
+    @unittest.skipIf(not TEST_CUDA, "no cuda")
+    def test_mesh_device_mismatch(self):
+        mesh = init_device_mesh("cuda", (self.world_size,))
+        model = MLP(8)
+        regex = "device and mesh must be of the same type but got cpu for device and cuda for mesh"
+        with self.assertRaisesRegex(ValueError, regex):
+            fully_shard(model, mesh=mesh, device="cpu")
 
 
 if __name__ == "__main__":
