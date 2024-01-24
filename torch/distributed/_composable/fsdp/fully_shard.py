@@ -9,7 +9,11 @@ from torch.distributed._composable import contract
 from torch.distributed._tensor import DeviceMesh
 
 from ._fsdp_common import FSDPMeshInfo, HSDPMeshInfo
-from ._fsdp_init import _init_default_fully_shard_mesh, _normalize_device
+from ._fsdp_init import (
+    _get_managed_modules,
+    _init_default_fully_shard_mesh,
+    _normalize_device,
+)
 from ._fsdp_state import FSDPState
 
 
@@ -42,6 +46,9 @@ def fully_shard(
 
     state = fully_shard.state(module)
     state.init(module, device)
+
+    managed_modules = _get_managed_modules(module)
+
     # Place FSDP leftmost for highest priority in the method resolution order
     cls = module.__class__
     dct = {"__deepcopy__": unimplemented_deepcopy}
