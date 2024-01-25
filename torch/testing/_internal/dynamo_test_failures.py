@@ -827,7 +827,6 @@ dynamo_expected_failures = {
     "TestAttnMasksCUDA.test_is_causal_equals_upper_left_shape1_cuda",
     "TestAttnMasksCUDA.test_is_causal_equals_upper_left_shape2_cuda",
     "TestAttnMasksCUDA.test_is_causal_equals_upper_left_shape3_cuda",
-    "TestAssertCloseSparseCOO.test_matching_coalesced",  # test_testing
     "TestImports.test_circular_dependencies",  # test_testing
     "TestAssertCloseSparseCSR.test_mismatching_crow_indices_msg",  # test_testing
     "TestAssertCloseSparseBSC.test_mismatching_row_indices_msg",  # test_testing
