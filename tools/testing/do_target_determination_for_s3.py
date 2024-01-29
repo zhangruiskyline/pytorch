@@ -3,7 +3,6 @@ import os
 import pathlib
 import sys
 
-from tools.stats.upload_metrics import emit_metric
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -16,13 +15,14 @@ from tools.stats.import_test_stats import (
     get_test_file_ratings,
     get_test_times,
 )
+from tools.stats.upload_metrics import emit_metric
 
 from tools.testing.discover_tests import TESTS
 from tools.testing.target_determination.determinator import (
     AggregatedHeuristics,
+    get_prediction_confidences,
     get_test_prioritizations,
     TestPrioritizations,
-    get_prediction_confidences,
 )
 
 
@@ -65,7 +65,7 @@ def main() -> None:
                 "prediction_confidences": prediction_confidences,
                 "final_test_prioritizations": test_prioritizations.to_json(),
                 "aggregated_heuristics": aggregated_heuristics.to_json(),
-            }
+            },
         )
 
     with open(REPO_ROOT / "td_results.json", "w") as f:

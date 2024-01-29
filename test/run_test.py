@@ -52,11 +52,6 @@ from tools.testing.discover_tests import (
     parse_test_module,
     TESTS,
 )
-from tools.testing.target_determination.determinator import (
-    AggregatedHeuristics,
-    get_prediction_confidences,
-    get_test_prioritizations,
-)
 from tools.testing.do_target_determination_for_s3 import import_results
 
 from tools.testing.test_run import TestRun
