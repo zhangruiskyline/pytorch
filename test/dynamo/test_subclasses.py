@@ -2,6 +2,7 @@
 import functools
 import itertools
 import unittest
+import sys
 
 import torch
 
@@ -30,6 +31,9 @@ from torch.testing._internal.common_utils import (
 )
 from torch.testing._internal.inductor_utils import HAS_CUDA
 
+# torch.compile does not support PyThon 3.12
+if (sys.version_info >= (3, 12))
+    return
 
 requires_cuda = functools.partial(unittest.skipIf, not HAS_CUDA, "requires cuda")
 
