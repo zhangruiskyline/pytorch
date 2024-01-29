@@ -338,6 +338,62 @@ class TestPrioritizations:
             METRIC_ORDER_OVERALL: self._get_test_order(test_run),
         }
 
+    def to_json(self) -> Dict[str, Any]:
+        """
+        Returns a JSON dict that describes this TestPrioritizations object.
+        """
+        json_dict: Dict[str, Any] = {}
+        for relevance_group, tests in self._traverse_priorities():
+            json_dict[relevance_group.name.lower()] = []
+            for test_run in tests:
+                json_dict[relevance_group.name.lower()].append(test_run.to_json())
+
+        json_dict["original_tests"] = list(self._original_tests)
+
+        return json_dict
+
+    @staticmethod
+    def from_json(json_dict: Dict[str, Any]) -> "TestPrioritizations":
+        """
+        Returns a TestPrioritizations object from a JSON dict.
+        """
+        test_prioritizations = TestPrioritizations(
+            tests_being_ranked=[],
+            high_relevance=[],
+            probable_relevance=[],
+            unranked_relevance=[],
+            unlikely_relevance=[],
+            no_relevance=[],
+        )
+
+        for relevance_group in Relevance:
+            testruns = [
+                TestRun.from_json(testrun_json)
+                for testrun_json in json_dict[relevance_group.name.lower()]
+            ]
+            test_prioritizations._test_priorities[relevance_group.value] = testruns
+
+        return test_prioritizations
+
+    def amend_tests(self, tests: List[str]) -> None:
+        """
+        Removes tests that are not in the given list from the
+        TestPrioritizations.  Adds tests that are in the list but not in the
+        TestPrioritizations.
+        """
+        for relevance_group, testruns in self._traverse_priorities():
+            new_testruns = [
+                testrun for testrun in testruns if testrun.test_file in tests
+            ]
+            self._test_priorities[relevance_group.value] = new_testruns
+
+        for test in tests:
+            if test not in self._original_tests:
+                self._test_priorities[Relevance.UNRANKED.value].append(TestRun(test))
+
+        self._original_tests = frozenset(tests)
+        self.validate_test_priorities()
+
 
 class AggregatedHeuristics:
     """
@@ -520,6 +576,16 @@ class AggregatedHeuristics:
             stats["highest_ranking_heuristic"] = highest_ranking_heuristic
 
         return stats
+
+    def to_json(self) -> Dict[str, Any]:
+        """
+        Returns a JSON dict that describes this AggregatedHeuristics object.
+        """
+        json_dict: Dict[str, Any] = {}
+        for heuristic, heuristic_results in self._heuristic_results.items():
+            json_dict[heuristic.name] = heuristic_results.to_json()
+
+        return json_dict
 
 
 class HeuristicInterface:
