@@ -197,9 +197,27 @@ class TensorVariable(VariableTracker):
                     )
                 else:
                     # attributes in the ctx returned by tensor_flatten are assumed to be constants
-                    from . import ConstantVariable
+                    from . import ConstantVariable, ListVariable, TupleVariable
 
-                    return ConstantVariable(example_value)
+                    # TODO: figure out a good way to dispatch on all possible variable trackers for constants here.
+                    from .distributed import DeviceMeshVariable, PlacementVariable
+
+                    def constant_or_distributed(x):
+                        if PlacementVariable.is_placement(x):
+                            return PlacementVariable(x)
+                        if DeviceMeshVariable.is_device_mesh(x):
+                            return DeviceMeshVariable(x)
+                        return ConstantVariable(x)
+
+                    if isinstance(example_value, list):
+                        return ListVariable(
+                            [constant_or_distributed(x) for x in example_value]
+                        )
+                    elif isinstance(example_value, tuple):
+                        return TupleVariable(
+                            [constant_or_distributed(x) for x in example_value]
+                        )
+                    return constant_or_distributed(example_value)
         if not self.source:
             raise NotImplementedError()
 
