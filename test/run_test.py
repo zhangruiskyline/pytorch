@@ -17,6 +17,7 @@ from contextlib import ExitStack
 from datetime import datetime
 from typing import Any, cast, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
+print(os.getpid(), "run_test", sys.path)
 import pkg_resources
 
 import torch
@@ -39,6 +40,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # using tools/ to optimize test run.
 sys.path.insert(0, str(REPO_ROOT))
+print(os.getpid(), "run_test", sys.path)
 from tools.stats.import_test_stats import (
     ADDITIONAL_CI_FILES_FOLDER,
     TEST_CLASS_TIMES_FILE,
