@@ -233,6 +233,12 @@ optimize_ddp = True
 # This feature is not hardened yet and it's known to cause issues to some models, so False by default.
 optimize_ddp_lazy_compile = False
 
+# Register Python hooks for AccumuldateGrad when using DDP. With Python hooks
+# and compiled_autograd(), the allreduce issued by DDP can be traced. This
+# flag is only used when DDP module is compiled.
+# This is an experimental feature.
+ddp_python_hook = False
+
 # Whether to skip guarding on FSDP-managed modules
 skip_fsdp_guards = True
 
