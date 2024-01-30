@@ -14,7 +14,7 @@ runs:
       if: ${{ !inputs.use-gha }}
       uses: seemethere/download-artifact-s3@v4
       with:
-        name: td_results.json
+        name: td_results
 
     - name: Download TD Artifacts from GHA
       if: inputs.use-gha
