@@ -776,6 +776,41 @@ class GuardManagerTests(torch._dynamo.test_case.TestCase):
         del x
         self.assertFalse(guard_manager.check(None))
 
+    def test_dict_manager(self):
+        f_locals = {
+            "foo": 1,
+            "bar": {"a": 1, "b": 2},
+        }
+        guard_manager = RootGuardManager()
+
+        foo_manager = guard_manager.__getitem__("foo", f_locals["foo"])
+        foo_manager.add_equals_match_guard(1, "guard_fail a")
+        bar_manager = guard_manager.__getitem__("bar", f_locals["bar"])
+        bar_manager.get_key_value_manager(
+            0, ("a", 1)
+        ).get_key_manager().add_equals_match_guard("a", "guard_fail a")
+        bar_manager.get_key_value_manager(
+            0, ("a", 1)
+        ).get_value_manager().add_equals_match_guard(1, "guard_fail b")
+        bar_manager.get_key_value_manager(
+            1, ("b", 2)
+        ).get_key_manager().add_equals_match_guard("b", "guard_fail c")
+        bar_manager.get_key_value_manager(
+            1, ("b", 2)
+        ).get_value_manager().add_equals_match_guard(2, "guard_fail d")
+
+        self.assertTrue(guard_manager.check(f_locals))
+        f_locals = {
+            "foo": 1,
+            "bar": {"a": 1, "b": 1},
+        }
+        self.assertFalse(guard_manager.check(f_locals))
+        f_locals = {
+            "foo": 1,
+            "bar": {"b": 2, "a": 1},
+        }
+        self.assertFalse(guard_manager.check(f_locals))
+
 
 if __name__ == "__main__":
     from torch._dynamo.test_case import run_tests

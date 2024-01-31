@@ -56,6 +56,8 @@ from . import config, convert_frame, exc, mutation_guard
 from .eval_frame import set_guard_error_hook
 from .source import (
     AttrSource,
+    ChainedSource,
+    ConstDictKeySource,
     DefaultsSource,
     FSDPNNModuleSource,
     GetItemSource,
@@ -98,6 +100,7 @@ check_obj_id = torch._C._dynamo.guards.check_obj_id
 check_type_id = torch._C._dynamo.guards.check_type_id
 dict_version = torch._C._dynamo.guards.dict_version
 RootGuardManager = torch._C._dynamo.guards.RootGuardManager
+DictGuardManager = torch._C._dynamo.guards.DictGuardManager
 install_tensor_aliasing_guard = torch._C._dynamo.guards.install_tensor_aliasing_guard
 
 
@@ -115,6 +118,9 @@ class GuardManager:
         for guard in node.get_leaf_guards():
             s += self.pretty_print_leaf_guard_str(prefix + "+- ", guard.repr())
             # prefix + "+-" + guard.repr() + "\n"
+        # print("---")
+        # print("--->", node.get_accessors())
+        # print("--->", node.get_child_managers())
         for accessor, mgr in zip(node.get_accessors(), node.get_child_managers()):
             s += prefix + "+- " + accessor.repr() + "\n"
             s += self._debug_print(mgr, prefix + "|  ")
@@ -329,19 +335,50 @@ class GuardBuilder(GuardBuilderBase):
         # eval_frame calls check_fn with f_locals dict, which is then later
         # wrapped up into a "L" dict.
         root_guard_manager = self.guard_manager.root
-        global_manager = root_guard_manager.globals_dict_manager(self.scope["G"])
+        global_manager = root_guard_manager.globals_dict_manager(self.scope["G"], None)
 
+        # if isinstance(value, dict):
+        #     print("----------", value, originating_source)
         # TODO(janimesh) - This should probably to guards object itself with a
         # member function - get_guard_manager. Need to figure out where to put
         # root_guard manager.
-        def build(source):
+        def build(source, is_first_call):
+            example_value = None
+            if is_first_call:
+                example_value = value
+
+            if isinstance(source, ChainedSource):
+                base_guard_manager = build(source.base, False)
+
+                if isinstance(base_guard_manager, DictGuardManager):
+                    if not istype(
+                        source, (GetItemSource, ODictGetItemSource, ConstDictKeySource)
+                    ):
+                        raise AssertionError("DictGuardManager should not be here")
+
             # Use istype instead of isinstance to check for exact type of source.
             if istype(source, LocalSource):
-                return root_guard_manager.dict_get_item_manager(source.local_name)
+                # TODO(janimesh) - Maybe make RootGuardManager a
+                # DictGuardManager. One reason not to do that is that we will
+                # have to undo it if we use fastlocals.
+                return root_guard_manager.dict_get_item_manager(
+                    source.local_name, example_value
+                )
             elif istype(source, GlobalSource):
-                return global_manager.dict_get_item_manager(source.global_name)
+                # TODO(janimesh) - Maybe make global manager a dict guard
+                # manager. One reason not to do that is because the globals dict
+                # is big and we will rarely iterate over all the keys and
+                # values. Here, key is always a string, so need to put a guard
+                # on the key object. DictGuardManager is targetted for smaller
+                # dicts and more specifically where we expect to cover many keys
+                # and values.
+                return global_manager.dict_get_item_manager(
+                    source.global_name, example_value
+                )
             elif istype(source, GlobalWeakRefSource):
-                return global_manager.global_weakref_manager(source.global_name)
+                return global_manager.global_weakref_manager(
+                    source.global_name, example_value
+                )
             elif istype(source, GlobalStateSource):
                 # TODO(janimesh) - Revisit this how to insert the global state
                 # guards at the root level. Specifically how is the closure
@@ -351,36 +388,46 @@ class GuardBuilder(GuardBuilderBase):
                 # List of sources that don't need accessors are put at the root
                 return root_guard_manager
             elif istype(source, TypeSource):
-                return build(source.base).type_manager()
+                return base_guard_manager.type_manager(example_value)
             elif istype(
                 source, (NNModuleSource, NotNNModuleSource, FSDPNNModuleSource)
             ):
-                return build(source.base)
+                return base_guard_manager
             elif istype(source, AttrSource):
-                return build(source.base).getattr_manager(source.member)
-            elif istype(source, GetItemSource) and not source.index_is_slice:
-                return build(source.base)[source.index]
+                return base_guard_manager.getattr_manager(source.member, example_value)
+            elif istype(source, GetItemSource):
+                if isinstance(source.index, ConstDictKeySource):
+                    raise NotImplementedError("Unsupported")
+                return base_guard_manager.__getitem__(source.index, example_value)
             elif istype(source, ODictGetItemSource):
-                return build(source.base).dict_get_item_manager(source.index)
+                # Necessary to call dict_get_item_manager to call PyDict_GetItem
+                # instead of PyObject_GetItem which can trigger user code.
+                if isinstance(source.index, ConstDictKeySource):
+                    raise NotImplementedError("Unsupported")
+                return base_guard_manager.dict_get_item_manager(
+                    source.index, example_value
+                )
             elif istype(source, DefaultsSource):
                 if not source.is_kw:
-                    return build(source.base).getattr_manager("__defaults__")[
-                        source.idx_key
-                    ]
+                    return base_guard_manager.getattr_manager(
+                        "__defaults__", None
+                    ).__getitem__(source.idx_key, example_value)
                 else:
-                    return build(source.base).getattr_manager("__kwdefaults__")[
-                        str(source.idx_key)
-                    ]
+                    return base_guard_manager.getattr_manager(
+                        "__kwdefaults__", None
+                    ).__getitem__(str(source.idx_key), example_value)
             elif istype(source, NumpyTensorSource):
-                return build(source.base).lambda_manager(from_numpy)
+                return base_guard_manager.lambda_manager(from_numpy, example_value)
             elif istype(source, TupleIteratorGetItemSource):
-                return build(source.base).tuple_iterator_getitem_manager(source.index)
+                return base_guard_manager.tuple_iterator_getitem_manager(
+                    source.index, example_value
+                )
             else:
                 raise AssertionError(
                     f"missing guard manager builder {source} - {source.name()}"
                 )
 
-        mgr = build(originating_source)
+        mgr = build(originating_source, is_first_call=True)
         return mgr
 
     def get_guard_manager(self, guard: Guard):
@@ -638,7 +685,7 @@ class GuardBuilder(GuardBuilderBase):
                 GuardCodeList([f"{ref}.training == {val.training}"], guard)
             )
             self.get_guard_manager(guard).getattr_manager(
-                "training"
+                "training", val.training
             ).add_equals_match_guard(
                 val.training,
                 self.get_guard_str(guard, [f"{ref}.training == {val.training}"]),
@@ -671,7 +718,7 @@ class GuardBuilder(GuardBuilderBase):
                 # TODO(janimesh) Check if the guard installation can be modified
                 # to move the getattr __code__ to the installation.
                 self.get_guard_manager(guard).getattr_manager(
-                    "__code__"
+                    "__code__", None
                 ).add_id_match_guard(obj_id, self.get_guard_str(guard, code))
             else:
                 self.FUNCTION_MATCH(guard)
@@ -788,10 +835,7 @@ class GuardBuilder(GuardBuilderBase):
 
         self._produce_guard_code(guard, code)
 
-        self.add_python_lambda_leaf_guard_to_root(
-            [code], self.get_guard_str(guard, [code])
-        )
-
+        self.add_python_lambda_leaf_guard_to_root(code, self.get_guard_str(guard, code))
 
     def OBJECT_MUTATION(self, guard: Guard):
         mutation_guard.watch(self.get(guard.name), self.check_fn_manager)
