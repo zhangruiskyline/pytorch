@@ -373,6 +373,9 @@ class TestPrioritizations:
             ]
             test_prioritizations._test_priorities[relevance_group.value] = testruns
 
+        test_prioritizations._original_tests = frozenset(json_dict["original_tests"])
+        test_prioritizations.validate_test_priorities()
+
         return test_prioritizations
 
     def amend_tests(self, tests: List[str]) -> None:
