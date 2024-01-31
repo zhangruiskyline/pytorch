@@ -3,12 +3,9 @@ import os
 import pathlib
 import sys
 
-print(os.getpid(), "do_target_determination_for_s3", sys.path)
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, "lolthisdoesntexist")
 sys.path.insert(0, str(REPO_ROOT))
-print(os.getpid(), "do_target_determination_for_s3", sys.path)
 
 from tools.stats.import_test_stats import (
     copy_pytest_cache,
@@ -28,6 +25,8 @@ from tools.testing.target_determination.determinator import (
     get_test_prioritizations,
     TestPrioritizations,
 )
+
+sys.path.remove(str(REPO_ROOT))
 
 
 def import_results() -> TestPrioritizations:
