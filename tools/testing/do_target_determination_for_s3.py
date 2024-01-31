@@ -6,7 +6,7 @@ import sys
 print(os.getpid(), "do_target_determination_for_s3", sys.path)
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, "lolthisdoesntexist")
 print(os.getpid(), "do_target_determination_for_s3", sys.path)
 
 from tools.stats.import_test_stats import (
