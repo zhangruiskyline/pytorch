@@ -384,24 +384,15 @@ class TestPrioritizations:
         TestPrioritizations.  Adds tests that are in the list but not in the
         TestPrioritizations.
         """
-        removed = []
         for relevance_group, testruns in self._traverse_priorities():
             valid_testruns = [
                 testrun for testrun in testruns if testrun.test_file in tests
             ]
-            removed.extend(
-                testrun.test_file for testrun in testruns if testrun.test_file not in tests
-            )
             self._test_priorities[relevance_group.value] = valid_testruns
 
-        new = []
         for test in tests:
             if test not in self._original_tests:
-                new.append(test)
                 self._test_priorities[Relevance.UNRANKED.value].append(TestRun(test))
-
-        print(f"New tests: {new}")
-        print(f"Removed tests: {new}")
 
         self._original_tests = frozenset(tests)
         self.validate_test_priorities()
