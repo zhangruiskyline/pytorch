@@ -24,4 +24,6 @@ runs:
 
     - name: Move artifacts to .additional_ci_files folder
       shell: bash
-      run: mv td_results.json .additional_ci_files/td_results.json
+      run: |
+        mkdir -p .additional_ci_files
+        mv td_results.json .additional_ci_files/td_results.json
