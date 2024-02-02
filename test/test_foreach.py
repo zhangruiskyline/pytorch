@@ -55,7 +55,7 @@ class ForeachFuncWrapper:
         actual = None
         zero_size = kwargs.pop("zero_size", False)
         if (
-            not IS_WINDOWS and is_cuda and
+            is_cuda and
             torch.autograd.kineto_available() and
             torch.profiler.ProfilerActivity.CUDA in torch.profiler.supported_activities()
         ):
