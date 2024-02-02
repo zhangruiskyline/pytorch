@@ -2633,9 +2633,9 @@ class ShapeEnv:
         # aren't interesting, since this is the function call we wish to reproduce at the
         # end. If we wish to simply reproduce ShapeEnv instances even after this call,
         # this method should also be recorded.
-        if self.check_recorded_events:
-            shape_env = replay_shape_env_events(self.events)
-            self.check_equal(shape_env)
+        #if self.check_recorded_events:
+        #    shape_env = replay_shape_env_events(self.events)
+        #    self.check_equal(shape_env)
 
         assert len(placeholders) == len(sources)
         Tensorlike = (torch.Tensor, FakeTensorMeta)

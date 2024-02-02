@@ -260,7 +260,7 @@ def run_and_get_cpp_code(fn, *args, **kwargs):
     # We use the patch context manager instead of using it as a decorator.
     # In this way, we can ensure that the attribute is patched and unpatched correctly
     # even if this run_and_get_cpp_code function is called multiple times.
-    with patch.object(config, "debug", True):
+    with config.patch({"debug": True, "fx_graph_cache": False}):
         torch._dynamo.reset()
         import io
         import logging
