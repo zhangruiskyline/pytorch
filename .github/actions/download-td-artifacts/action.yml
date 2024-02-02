@@ -20,7 +20,7 @@ runs:
       if: inputs.use-gha
       uses: actions/download-artifact@v3
       with:
-        name: td_results
+        name: td_results.json
 
     - name: Move artifacts to .additional_ci_files folder
       shell: bash
