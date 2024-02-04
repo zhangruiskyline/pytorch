@@ -24,7 +24,7 @@ from torch._export.utils import (
     register_dataclass_as_pytree_node,
 )
 from torch._subclasses import FakeTensorMode
-from torch.export import Constraint, Dim, dynamic_dim, export, unflatten, WrapperModule
+from torch.export import Dim, dynamic_dim, export, unflatten, WrapperModule
 from torch.export._trace import (
     _export,
     _export_to_torch_ir,
@@ -331,7 +331,7 @@ class TestExport(TestCase):
         )
 
         with self.assertRaisesRegex(
-            torch.fx.experimental.symbolic_shapes.ConstraintViolationError,
+            torch._dynamo.exc.UserError,
             "Constraints violated \\(dim\\)!(.*\n)*.*"
             "Not all values of dim.*satisfy the generated guard(.*\n)*.*"
             "Suggested fixes:(.*\n)*.*"
@@ -340,6 +340,175 @@ class TestExport(TestCase):
             torch.export.export(
                 foo, bad_example_inp, dynamic_shapes=dynamic_shapes, strict=False
             )
+
+    def test_derived_dim(self):
+        class Foo(torch.nn.Module):
+            def forward(self, x, y):
+                return x + y[1:]
+
+        foo = Foo()
+
+        x, y = torch.randn(5), torch.randn(6)
+        dimx = torch.export.Dim("dimx", min=3, max=6)
+
+        dimy = torch.export.Dim("dimy", min=4, max=7)  # doesn't work
+        with self.assertRaisesRegex(
+            torch._dynamo.exc.UserError,
+            (
+                "Constraints violated \\(dimy\\)!(.*\n)*.*"
+                "The values of dimy.*must always be related to the values of dimx.*by.*(.*\n)*.*"
+                "Suggested fixes:(.*\n)*.*"
+                "dimy = dimx \\+ 1"
+            ),
+        ):
+            export(
+                foo,
+                (x, y),
+                dynamic_shapes=({0: dimx}, {0: dimy}),
+            )
+
+        dimy = dimx * 2  # doesn't work
+        with self.assertRaisesRegex(
+            torch._dynamo.exc.UserError,
+            "Expected input.*size.* to be equal to 2\\*dimx, where dimx = 5, but got 6",
+        ):
+            export(
+                foo,
+                (x, y),
+                dynamic_shapes=({0: dimx}, {0: dimy}),
+            )
+
+        dimy = dimx + 1  # works
+        ep = export(
+            foo,
+            (x, y),
+            dynamic_shapes=({0: dimx}, {0: dimy}),
+        )
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "Expected input.*shape.*to be equal to 5, but got 6",
+        ):
+            ep(torch.randn(4), torch.randn(6))
+
+        self.assertEqual(ep(torch.randn(4), torch.randn(5)).size()[0], 4)
+
+        class Foo(torch.nn.Module):
+            def forward(self, x, y):
+                return x + y[1::2]
+
+        foo = Foo()
+
+        x, y = torch.randn(5), torch.randn(11)
+        dimy = dimx * 2 + 1  # works
+        ep = export(
+            foo,
+            (x, y),
+            dynamic_shapes=({0: dimx}, {0: dimy}),
+        )
+        self.assertEqual(ep(torch.randn(4), torch.randn(9)).size()[0], 4)
+
+        class Foo(torch.nn.Module):
+            def forward(self, z, y):
+                return z[1:] + y[1::2]
+
+        foo = Foo()
+
+        z, y = torch.randn(6), torch.randn(11)
+
+        dimz = dimx
+        dimy = dimx * 2 - 1  # works
+        ep = export(
+            foo,
+            (z, y),
+            dynamic_shapes=({0: dimz}, {0: dimy}),
+        )
+        self.assertEqual(ep(torch.randn(5), torch.randn(9)).size()[0], 4)
+
+        dimz = dimx + 1
+        dimy = dimx * 2 - 1  # doesn't work
+
+        with self.assertRaisesRegex(
+            torch._dynamo.exc.UserError,
+            "Expected input.*size.*to be equal to 2\\*dimx - 1, where dimx = 5, but got 11",
+        ):
+            export(
+                foo,
+                (z, y),
+                dynamic_shapes=({0: dimz}, {0: dimy}),
+            )
+
+        dimy = dimx * 2 + 1  # works
+        ep = export(
+            foo,
+            (z, y),
+            dynamic_shapes=({0: dimz}, {0: dimy}),
+        )
+        with self.assertRaisesRegex(
+            RuntimeError, "Expected input.*shape.*to be <= 7, but got 8"
+        ):
+            ep(torch.randn(8), torch.randn(15))
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "Expected input.*shape.*to be equal to 9, but got 8",
+        ):
+            ep(torch.randn(5), torch.randn(8))
+
+        self.assertEqual(ep(torch.randn(5), torch.randn(9)).size()[0], 4)
+
+        class Foo(torch.nn.Module):
+            def forward(self, w):
+                if w.shape[0] % 2 == 0:
+                    return w[::2]
+                else:
+                    return w[1:-1:2]
+
+        foo = Foo()
+
+        w = torch.randn(10)
+        dimw = dimx * 2 + 1  # doesn't work
+        with self.assertRaisesRegex(
+            torch._dynamo.exc.UserError,
+            "dimx is expected to be an integer, but got 9/2",
+        ):
+            export(
+                foo,
+                (w,),
+                dynamic_shapes=({0: dimw},),
+            )
+
+        dimw = dimx * 2  # works
+        ep = export(
+            foo,
+            (w,),
+            dynamic_shapes=({0: dimw},),
+        )
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "Expected input.*shape.*= 9 to be of the form 2\\*s1, where "
+            "s1 is expected to be an integer, but got 9/2",
+        ):
+            ep(torch.randn(9))
+
+        self.assertEqual(ep(torch.randn(8)).size()[0], 4)
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "Expected input.*shape.*to be <= 12, but got 14",
+        ):
+            ep(torch.randn(14))
+
+        class Foo(torch.nn.Module):
+            def forward(self, u, v):
+                return u[::2] + v[::2]
+
+        foo = Foo()
+
+        u, v = torch.randn(10), torch.randn(10)
+        ep = export(
+            foo,
+            (u, v),
+            dynamic_shapes=({0: dimw}, {0: dimw}),
+        )
+        self.assertEqual(ep(torch.randn(8), torch.randn(8)).size()[0], 4)
 
     def test_raise_user_error_when_guard_on_data_dependent_operation(self):
         class M(torch.nn.Module):
@@ -1846,13 +2015,6 @@ def forward(self, arg_0):
             "Tried to use data-dependent value in the subsequent computation",
         ):
             _ = export(WrapperModule(f), (torch.tensor(6),))
-
-    def test_constraint_directly_construct(self):
-        with self.assertRaisesRegex(
-            TypeError,
-            "Constraint has no public constructor. Please use torch.export.dynamic_dim",
-        ):
-            _ = Constraint()
 
     def test_train_eval_on_exported_preautograd_module(self):
         class Foo(torch.nn.Module):

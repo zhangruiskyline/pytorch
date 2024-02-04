@@ -1,6 +1,6 @@
 import inspect
 from collections import defaultdict
-from typing import Any, Dict, Tuple
+from typing import Any, Callable, Dict, List, Tuple, Union
 
 import torch
 from torch._dynamo.source import (
@@ -108,18 +108,37 @@ def make_fake_inputs(nn_module, args, constraints):
             lambda kp, val: fakify(fake_mode, kp, val, t_constraints, sources),
             args,
         )
-        src_equalities = []
+
+        from sympy import Symbol
+
+        source_pairs: List[Tuple[Source, Source]] = []
+        derived_equalities: List[Tuple[Source, Union[Source, Symbol], Callable]] = []
+        phantom_symbols: Dict[str, Symbol] = {}
         for constraint in constraints:
-            if constraint.shared is not None:
-                src_equality = (
-                    sources[(constraint.t_id, constraint.dim)],
-                    sources[(constraint.shared.t_id, constraint.shared.dim)],
-                )
-                src_equalities.append(src_equality)
-        return fake_mode, fake_args, src_equalities, original_signature
+            torch.export.dynamic_shapes._process_equalities(
+                constraint,
+                lambda t_id, dim: [sources[(t_id, dim)]],
+                fake_mode.shape_env,
+                source_pairs,
+                derived_equalities,
+                phantom_symbols,
+            )
+
+        equalities_inputs = EqualityConstraint(
+            source_pairs=source_pairs,
+            derived_equalities=derived_equalities,
+            phantom_symbols=phantom_symbols,
+            warn_only=False,
+        )
+        return fake_mode, fake_args, equalities_inputs, original_signature
 
 
-def make_constraints(fake_mode, src_equalities, original_signature, gm):
+def make_constraints(
+    fake_mode,
+    equalities_inputs,
+    original_signature,
+    gm,
+):
     """
     Given a fake mode, sources pairs corresponding to equal dynamic shape dimensions,
     and a graph module, produce guards on the fake mode's shape env (raising constraint
@@ -130,7 +149,6 @@ def make_constraints(fake_mode, src_equalities, original_signature, gm):
     placeholders = [tf.fake for tf in shape_env.tracked_fakes]
     sources = [tf.source for tf in shape_env.tracked_fakes]
     input_contexts = [tf.symbolic_context for tf in shape_env.tracked_fakes]
-    equalities_inputs = EqualityConstraint(source_pairs=src_equalities, warn_only=False)
     constraint_violation_error = None
     try:
         shape_env.produce_guards(
@@ -145,6 +163,12 @@ def make_constraints(fake_mode, src_equalities, original_signature, gm):
 
     shape_env.frozen = True
     dim_constraints = shape_env.dim_constraints
+    if dim_constraints is None:
+        # Expected when shape_env.produce_guards throws an early constraint violation error.
+        # There is nothing to solve for in this case.
+        # TODO(avik): Maybe record the constraint violation error instead and replay later?
+        assert constraint_violation_error
+        raise constraint_violation_error
     dim_constraints.solve()
     dim_constraints.remove_redundant_dynamic_results()
     forced_specializations = dim_constraints.forced_specializations()
@@ -160,6 +184,7 @@ def make_constraints(fake_mode, src_equalities, original_signature, gm):
 
     range_constraints = {}
     input_dims = defaultdict(list)
+    free_symbols = set()
     for node in gm.graph.nodes:
         if node.op != "placeholder":
             continue
@@ -167,13 +192,16 @@ def make_constraints(fake_mode, src_equalities, original_signature, gm):
             continue
         for i, d in enumerate(node.meta["val"].shape):
             if isinstance(d, torch.SymInt):
-                range_constraints[d.node.expr] = shape_env.var_to_range[d.node.expr]
+                range_constraints[d.node.expr] = shape_env.var_to_range[d.node._expr]
                 input_dims[d.node.expr].append(InputDim(input_name=node.name, dim=i))
+                free_symbols.update(d.node.expr.free_symbols)
 
-    equality_constraints = []
-    for equal_input_dims in input_dims.values():
-        primary, *others = equal_input_dims
-        for other in others:
-            equality_constraints.append((primary, other))
+    for symbol in free_symbols:
+        if symbol not in range_constraints:
+            # Placeholders can have symbolic shapes that are derived expressions.
+            # The above code will record direct range constraints for them
+            # so that we can do runtime assertions. In addition, for serde checks
+            # we want to record range constraints for their root symbols.
+            range_constraints[symbol] = shape_env.var_to_range[symbol]
 
-    return range_constraints, equality_constraints
+    return range_constraints

@@ -49,6 +49,7 @@ def _check_input_constraints_for_graph(
     from torch._export.passes.add_runtime_assertions_for_constraints_pass import (
         _convert_range_to_int,
     )
+    from torch.fx.experimental.symbolic_shapes import DimConstraints
 
     if len(flat_args_with_path) != len(input_placeholders):
         raise RuntimeError(
@@ -75,15 +76,34 @@ def _check_input_constraints_for_graph(
 
             for j, (arg_dim, node_dim) in enumerate(zip(arg.shape, node_val.shape)):
                 if isinstance(node_dim, torch.SymInt):
-                    if node_dim.node.expr in unification_map:
-                        existing_dim = unification_map[node_dim.node.expr]
+                    # TODO(avik): Move this assertion to the IR verifier. Specifically:
+                    # node_dim should either be an int or a SymInt containing a unary sympy.Expr
+                    assert len(node_dim.node.expr.free_symbols) == 1
+                    symbol = next(iter(node_dim.node.expr.free_symbols))
+                    if symbol in unification_map:
+                        existing_dim = node_dim.node.expr.subs(unification_map)
                         if arg_dim != existing_dim:
                             raise RuntimeError(
                                 f"Expected input at {get_keystr(key_path)}.shape[{j}] to be equal to "
                                 f"{existing_dim}, but got {arg_dim}",
                             )
                     else:
-                        unification_map[node_dim.node.expr] = arg_dim
+                        try:
+                            if isinstance(arg_dim, torch.SymInt) and isinstance(
+                                node_dim.node.expr, sympy.Symbol
+                            ):
+                                # this can happen when, say, arg is a fake tensor
+                                unification_map[symbol] = arg_dim
+                            else:
+                                solution = DimConstraints.solve_supported_equivalence(
+                                    node_dim.node.expr, arg_dim
+                                )
+                                unification_map[symbol] = solution
+                        except ValueError as e:
+                            raise RuntimeError(  # noqa: TRY200
+                                f"Expected input {node.name}.shape[{j}] = {arg_dim} to be "
+                                f"of the form {node_dim.node.expr}, where {e.args[0]}"
+                            )
 
                     if node_dim.node.expr in range_constraints:
                         min_val, max_val = _convert_range_to_int(
