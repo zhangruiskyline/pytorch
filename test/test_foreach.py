@@ -65,6 +65,7 @@ class ForeachFuncWrapper:
                 print("ionut end profiling")
             keys = tuple([e.key for e in p.key_averages()])
             print("ionut before mta_called")
+            print(keys)
             mta_called = any("multi_tensor_apply_kernel" in k for k in keys)
             print(f"ionut mta_called: {mta_called}, expect_fastpath: {expect_fastpath}, zero_size: {zero_size}")
 
