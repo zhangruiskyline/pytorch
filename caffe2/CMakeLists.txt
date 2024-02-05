@@ -1532,6 +1532,7 @@ if(MSVC)
   # Sleef lib need build as static lib and need setup to /MT, it shared to pytorch will
   # caused the link conflict between /MD and /MT.
   # So, I split the sleef build to sub-process, and make it isolated to pytorch build.
+  # TODO: Optimize CMake build @ sleef, and add sleef as submodule.
   set(PARALLEL_ARGS)
   include(ProcessorCount)
   ProcessorCount(N)
