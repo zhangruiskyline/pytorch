@@ -6,6 +6,7 @@ import weakref
 
 import torch
 from torch._prims_common import DeviceLikeType
+from torch.overrides import has_torch_function, has_torch_function_unary
 from ..parameter import Parameter
 import torch.utils.hooks as hooks
 
@@ -2019,6 +2020,7 @@ class Module:
         local_name_params = itertools.chain(self._parameters.items(), persistent_buffers.items())
         local_state = {k: v for k, v in local_name_params if v is not None}
         assign_to_params_buffers = local_metadata.get("assign_to_params_buffers", False)
+        use_swap_tensors = torch.nn.utils.get_swap_module_params_on_conversion()
 
         for name, param in local_state.items():
             key = prefix + name
@@ -2061,6 +2063,16 @@ class Module:
                                 setattr(self, name, torch.nn.Parameter(input_param))
                             else:
                                 setattr(self, name, input_param)
+                        elif use_swap_tensors and has_torch_function({param, input_param}):
+                            param_requires_grad = param.requires_grad
+                            if has_torch_function_unary(param):
+                                new_input_param = param.module_load_from(input_param)
+                            elif has_torch_function_unary(input_param):
+                                new_input_param = input_param.module_load_to(param)
+                            if (isinstance(param, torch.nn.Parameter) and
+                                    not isinstance(new_input_param, torch.nn.Parameter)):
+                                new_input_param = torch.nn.Parameter(new_input_param, requires_grad=param_requires_grad)
+                            torch.utils.swap_tensors(param, new_input_param)
                         else:
                             param.copy_(input_param)
                 except Exception as ex:

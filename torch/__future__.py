@@ -44,6 +44,7 @@ def set_swap_module_params_on_conversion(value: bool) -> None:
     #. ``module.{dtype}()`` (e.g. ``module.float()``) for converting a module to a different dtype
        (for converting a module to a different dtype)
     #. ``module.to()``
+    #. ``module.load_state_dict(state_dict)``
 
     """
     global _swap_module_params_on_conversion
