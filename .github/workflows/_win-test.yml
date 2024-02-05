@@ -115,6 +115,7 @@ jobs:
           tree /F C:\$Env:GITHUB_RUN_ID\build-results
 
       - name: Download TD artifacts
+        continue-on-error: true
         uses: ./.github/actions/download-td-artifacts
 
       - name: Get workflow job id

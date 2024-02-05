@@ -92,6 +92,7 @@ jobs:
           use-gha: true
 
       - name: Download TD artifacts
+        continue-on-error: true
         uses: ./.github/actions/download-td-artifacts
         with:
           use-gha: true
