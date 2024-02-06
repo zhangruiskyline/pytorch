@@ -349,13 +349,13 @@ class GuardBuilder(GuardBuilderBase):
         self._produce_guard_code(guard, [code], provided_guarded_object=self.get(base))
 
     def FUNCTORCH_CURRENT_LEVEL_MATCH(self, guard: Guard):
-        # Invalidate the graph if a call to vmap has been made prior to this
-        # This is super conservative as the interpreter stack may not contain
-        # vmap
-        code = [
-            "torch._C._functorch.maybe_current_level() is None",
-        ]
-        self._produce_guard_code(guard, code)
+        # Invalidate functorch code if current level is different than
+        # the one when FX graph was generated
+        if torch._C._functorch.peek_interpreter_stack() is not None:
+            ci = torch._functorch.pyfunctorch.retrieve_current_functorch_interpreter()
+            state = ci.get_state()
+            code = f"torch._functorch.pyfunctorch.retrieve_current_functorch_interpreter().check_state({state})"
+            self._produce_guard_code(guard, [code])
 
     def EQUALS_MATCH(self, guard: Guard):
         ref = self.arg_ref(guard)
