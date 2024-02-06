@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import sympy
 
 import torch
+import torch.ao.quantization.fx._decomposed
 import torch.fx
 import torch.utils._pytree as pytree
 from torch._higher_order_ops.triton_kernel_wrap import (
@@ -70,6 +71,7 @@ needs_realized_inputs: Set[torch._ops.OpOverload] = set()
 foreach_ops: Set[torch._ops.OpOverload] = set()
 inplace_foreach_ops: Set[torch._ops.OpOverload] = set()
 inplaceable_foreach_ops: Dict[torch._ops.OpOverload, torch._ops.OpOverload] = dict()
+quantized_decomposed = torch.ops.quantized_decomposed
 
 
 def assert_nyi(cond, msg):
@@ -1062,6 +1064,87 @@ def pointwise_cat(inputs, dim=0):
         inner_fn=inner_fn,
         ranges=new_size,
     )
+
+
+def _permute_to_axis_zero(x, axis):
+    new_axis_list = list(range(len(x.get_size())))
+    new_axis_list[axis] = 0
+    new_axis_list[0] = axis
+    y = permute(x, tuple(new_axis_list))
+    return y, new_axis_list
+
+
+@register_lowering(quantized_decomposed.quantize_per_channel, type_promotion_kind=None)
+def quantized_decomposed_quantize_per_channel(
+    input: TensorBox,
+    scales: TensorBox,
+    zero_points: TensorBox,
+    axis: int,
+    quant_min: int,
+    quant_max: int,
+    dtype: torch.dtype,
+) -> TensorBox:
+    assert len(scales.get_size()) == 1, "expect scales 1 dim"
+    assert len(zero_points.get_size()) == 1, "expect zero_points 1 dim"
+
+    if input.get_dtype() == torch.bfloat16:
+        input = input.to(torch.float32)
+    assert (
+        input.get_dtype() == torch.float32
+    ), f"Expecting input to have dtype torch.float32, but got dtype: {input.get_dtype()}"
+    assert axis < len(
+        input.get_size()
+    ), f"Expecting axis to be < {len(input.get_size())}"
+
+    input, permute_axis_list = _permute_to_axis_zero(input, axis)
+    original_input_size = input.get_size()
+    input = view(input, (original_input_size[0], -1))
+    res = maximum(
+        quant_min,
+        minimum(
+            quant_max,
+            add(
+                round(mul(input, unsqueeze(div(1.0, scales), 1))),
+                unsqueeze(zero_points, 1),
+            ),
+        ),
+    )
+    res = view(res, original_input_size)
+    out = permute(res, tuple(permute_axis_list))
+    return to_dtype(out, dtype)
+
+
+@register_lowering(
+    quantized_decomposed.dequantize_per_channel, type_promotion_kind=None
+)
+def quantized_decomposed_dequantize_per_channel(
+    input: TensorBox,
+    scales: TensorBox,
+    zero_points: TensorBox,
+    axis: int,
+    quant_min: int,
+    quant_max: int,
+    dtype: torch.dtype,
+) -> TensorBox:
+    assert len(scales.get_size()) == 1, "expect scales 1 dim"
+    assert len(zero_points.get_size()) == 1, "expect zero_points 1 dim"
+    assert (
+        input.get_dtype() == dtype
+    ), f"Expecting input to have dtype {dtype}, but got dtype: {input.get_dtype()}"
+    assert axis < len(
+        input.get_size()
+    ), f"Expecting axis to be < {len(input.get_size())}"
+
+    input, permute_axis_list = _permute_to_axis_zero(input, axis)
+    original_input_size = input.get_size()
+    input = view(input, (original_input_size[0], -1))
+    res = mul(
+        sub(to_dtype(input, torch.float32), unsqueeze(zero_points, 1)),
+        unsqueeze(scales, 1),
+    )
+    res = view(res, original_input_size)
+    out = permute(res, tuple(permute_axis_list))
+    return out
 
 
 @register_lowering(aten.cat)
