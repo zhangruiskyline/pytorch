@@ -213,7 +213,7 @@ void AutogradMeta::set_fw_grad(
       //   - Copy the given new_grad into this view
       //   - Use this view as the new new_grad
       if (this_view_meta->has_fw_view()) {
-        auto view_info = this_view_meta->get_forward_view();
+        auto& view_info = this_view_meta->get_forward_view();
         auto& base = view_info.base_;
 
         if (!base._fw_grad(level).defined()) {
@@ -234,7 +234,7 @@ void AutogradMeta::set_fw_grad(
             // Update new_grad to be a view of the base
             Tensor new_fw_grad_value;
             if (view_info.has_view_fn()) {
-              new_fw_grad_value = view_info.view_fn()(new_base_fw_grad);
+              new_fw_grad_value = (*view_info.view_fn())(new_base_fw_grad);
             } else {
               new_fw_grad_value = new_base_fw_grad.as_strided(
                   self.sizes(), self.strides(), self.storage_offset());
@@ -301,7 +301,7 @@ const Variable& AutogradMeta::fw_grad(
 
         Variable new_val;
         if (view_info.has_view_fn()) {
-          new_val = view_info.view_fn()(base_val);
+          new_val = (*view_info.view_fn())(base_val);
         } else {
           new_val = base_val.as_strided(
               self.sizes(), self.strides(), self.storage_offset());
