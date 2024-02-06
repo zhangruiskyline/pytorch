@@ -3078,7 +3078,11 @@ class CudaWrapperCodeGen(CppWrapperCodeGen):
         super().write_header()
 
         self.header.splice("#include <filesystem>")
-        if not config.abi_compatible:
+        if config.abi_compatible:
+            self.header.splice(
+                "#include <torch/csrc/inductor/aoti_runtime/utils_cuda.h>"
+            )
+        else:
             self.header.splice(
                 """
                 #include <c10/cuda/CUDAGuard.h>
