@@ -29,7 +29,7 @@ jobs:
       - name: Do TD
         id: td
         run: |
-          python3 -m pip install boto3
+          python3 -m pip install boto3==1.19.12
           python3 tools/testing/do_target_determination_for_s3.py
 
       - name: Upload TD results to s3
